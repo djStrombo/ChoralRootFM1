@@ -10,12 +10,11 @@
 #include <stdint.h>
 #include "fm1_gpio.h"
 
+#if !BOARD_SMK37
 #define FM1_ADC_CON (*(volatile uint32_t *)0x13100u)
 #define FM1_ADC_RES (*(volatile uint32_t *)0x13104u)
 #define FM1_WLA_CON0 (*(volatile uint32_t *)0x11900u)
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
-
-#if !BOARD_SMK37
 /* Both are only ever analog inputs: PB1 held low for 8 s would reset the
  * chip (isd_config). */
 static void fm1_adc_init(void)
