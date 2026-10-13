@@ -155,6 +155,10 @@ static uint8_t fm1_led_breath[FM1_NCOL];
 static uint8_t fm1_led_mid[FM1_NCOL];
 static inline void fm1_led_dim_level(uint32_t lo) { (void)lo; }
 static inline void fm1_led_anim_start(uint32_t glow) { (void)glow; }
+static inline int  fm1_led_anim_on(void) { return 0; }
+static inline void fm1_led_idle_start(uint32_t glow) { (void)glow; }
+static inline int  fm1_led_idle_on(void) { return 0; }
+static inline void fm1_led_anim_stop(void) {}
 static uint8_t fm1__dim_k = 16, fm1__dim2_k = 16, fm1__faint_k = 16;
 
 #define FM1_GAP_BINS 8u
