@@ -125,6 +125,10 @@ static volatile struct {
     uint8_t enc_last[FM1_NENC], enc_hist[FM1_NENC];
     int16_t enc_cnt[FM1_NENC];   /* transitions, + = B leads */
     int16_t enc_steps[FM1_NENC];
+    uint8_t enc_rest[FM1_NENC];  /* detent state */
+    uint16_t enc_still[FM1_NENC];/* frames since state change */
+    int8_t enc_sub[FM1_NENC];    /* net transitions */
+    uint32_t note_t0[27];        /* timestamp when key closed */
     uint16_t pad_raw[SMK_NPAD], pad_base[SMK_NPAD], pad_peak[SMK_NPAD];
     uint8_t pad_st[SMK_NPAD];    /* 0 idle, 1..SMK_PAD_PEAKN collecting the peak, 0x80 on */
     uint8_t pad_low[SMK_NPAD];
@@ -147,6 +151,7 @@ static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
 static uint8_t fm1_led_dim[FM1_NCOL];
 static uint8_t fm1_led_dim2[FM1_NCOL];
 static uint8_t fm1_led_faint[FM1_NCOL];
+static uint8_t fm1__dim_k = 16, fm1__dim2_k = 16, fm1__faint_k = 16;
 
 #define FM1_GAP_BINS 8u
 static volatile struct {

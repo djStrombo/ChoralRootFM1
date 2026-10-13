@@ -15,6 +15,7 @@
 #define FM1_WLA_CON0 (*(volatile uint32_t *)0x11900u)
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
 
+#if !BOARD_SMK37
 /* Both are only ever analog inputs: PB1 held low for 8 s would reset the
  * chip (isd_config). */
 static void fm1_adc_init(void)
@@ -43,3 +44,4 @@ static int32_t fm1_adc_read(uint32_t ch)
     FM1_ADC_CON = 0;
     return t == 20000u ? -1 : (int32_t)v;
 }
+#endif
