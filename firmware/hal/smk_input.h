@@ -143,7 +143,7 @@ static volatile struct {
 } fm1_in;
 
 /* key events beyond the FM-1's 27 (keybed keys 0..4 and 32..36): key << 8 | velocity (0 = release) */
-#define SMK_EXTQ 32u
+#define SMK_EXTQ 8u
 static volatile uint16_t smk_extq[SMK_EXTQ];
 static volatile uint8_t smk_extq_w, smk_extq_r;
 
@@ -162,27 +162,6 @@ static inline void fm1_led_idle_start(uint32_t glow) { (void)glow; }
 static inline int  fm1_led_idle_on(void) { return 0; }
 static inline void fm1_led_anim_stop(void) {}
 static uint8_t fm1__dim_k = 16, fm1__dim2_k = 16, fm1__faint_k = 16;
-
-#define FM1_GAP_BINS 8u
-static volatile struct {
-    uint32_t last, gap_max, gap_hist[FM1_GAP_BINS];
-    uint32_t on[FM1_NCOL], on_max[FM1_NCOL];
-    uint32_t cost_sum, cost_max, ticks;
-    uint32_t enc_moves[FM1_NENC], enc_lost[FM1_NENC];
-    uint32_t press_n, press_sum, press_max;
-    uint32_t kb_n, kb_sum, kb_max, dac_sum, dac_max;
-    uint32_t dim_n, dim_sum;
-    uint32_t dim2_n, dim2_sum;
-    uint32_t faint_n, faint_sum;
-} fm1_in_stat;
-static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
-    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-    { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1, -1, -1, -1, -1, -1},
-    {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12, -1, -1, -1, -1, -1},
-    {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, -1, -1, -1, -1, -1},
-    { 0,  1, 15, 14, 17, 16, 19, 18, 20, 21, 22, -1, -1, -1, -1, -1},
-    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
-};
 static volatile uint32_t smk_ledw[2]; /* per LED group: 0xFFFF0000 | low half (LED lines active low) */
 static volatile uint32_t smk_muxw = 0xFFFFFFC7u;  /* AND masks over the whole 32-bit word: only the low half */
 static uint8_t smk_col, smk_grp, smk_slot, smk_adc_slot = 0xFF;
