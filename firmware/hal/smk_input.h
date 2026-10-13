@@ -153,6 +153,8 @@ static uint8_t fm1_led_dim2[FM1_NCOL];
 static uint8_t fm1_led_faint[FM1_NCOL];
 static uint8_t fm1_led_breath[FM1_NCOL];
 static uint8_t fm1_led_mid[FM1_NCOL];
+static uint8_t fm1_led_bg[FM1_NCOL];
+static volatile uint16_t fm1_led_bg_ns;
 static inline void fm1_led_dim_level(uint32_t lo) { (void)lo; }
 static inline void fm1_led_anim_start(uint32_t glow) { (void)glow; }
 static inline int  fm1_led_anim_on(void) { return 0; }
