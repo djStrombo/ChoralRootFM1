@@ -160,7 +160,10 @@ def ldr_wrap(image):
 def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
+    flags = []
+    if getattr(a, "board", "fm1") == "smk37":
+        flags.append("-DBOARD_SMK37=1")
+    flags += [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
     elf = LDR / "loader.elf"
@@ -252,7 +255,10 @@ def build_stub():
 # ---- app
 
 def build_app(stub):
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
+    flags = []
+    if getattr(a, "board", "fm1") == "smk37":
+        flags.append("-DBOARD_SMK37=1")
+    flags += [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
                  "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_ICONS", "FELUCCA_KEYCAPS", "FELUCCA_SLICE",
                  "FELUCCA_SLICER", "FELUCCA_FM4", "FELUCCA_SAMPLE", "FELUCCA_GRAIN", "FELUCCA_DRUM", "FELUCCA_SEQ",
@@ -438,6 +444,8 @@ def main():
     global VERSION
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help=f"release build: identity {PRODUCT}, version string ChoralRoot X.Y")
+    ap.add_argument("--board", choices=("fm1", "smk37"), default="fm1")
+    ap.add_argument("--model", choices=("pro", "elite"), default="pro")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = f"{UNIT}.fwsc"
