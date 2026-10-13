@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Generated automatically by SMK-37 Control Remapper */
-/* Target: SMK-37 ELITE | Engine: CHORALROOT */
+/* Target: SMK-37 ELITE | Engine: CUSTOM */
 #pragma once
 #include <stdint.h>
 
@@ -124,4 +124,3 @@ static const uint8_t SMK_FAD_MAP[4] = {
 
 /* Function prototypes */
 int32_t smk_quantize_note(int32_t note_offset);
-

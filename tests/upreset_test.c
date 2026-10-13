@@ -2,8 +2,9 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the user preset record (firmware/src/upreset.c, -DUP_HOST part):
  * UP_PUT parsing, a bank round trip through storage.c on a simulated NOR,
- * bank / record version checks, map-by-count, pattern <-> steps, PHYS MODEL DRUM records -> the DRUM engine,
- * drum grid records (version 3: UP_PUT's kind 1 and its high bits, a round trip). */
+ * OPB2 (196-byte records with macros) and the frozen UPB1 (192 bytes) decoded,
+ * bank / record version checks, map-by-count of values and macro ids,
+ * pattern <-> steps. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,13 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
+static uint32_t up_count_host(void)              /* (up_count is outside UP_HOST) */
+{
+    uint32_t k, n = 0;
+    for (k = 0; k < UP_SLOTS; k++)
+        n += (uint32_t)up_used(k);
+    return n;
+}
 
 static int check(const char *what, int ok)
 {
@@ -51,8 +59,34 @@ static uint32_t put_frame(uint8_t *a, uint32_t slot, uint32_t eng, const char *n
     return n;
 }
 
+/* a UPB1 bank as ORBIT 0.6 stored it, through its frozen layout: every slot used, np 61 */
+static void fill_v1_bank(up_bank_v1_t *b, uint32_t bank)
+{
+    uint32_t i, k;
+    memset(b, 0, sizeof *b);
+    b->magic = UP_BANK_MAGIC_V1;
+    b->rsize = UP_RECORD_V1;
+    b->nslot = UP_PER_BANK;
+    for (i = 0; i < UP_PER_BANK; i++) {
+        up_rec_v1_t *r = &b->r[i];
+        r->used = UP_USED;
+        r->ver = UP_VER_V1;
+        r->engine = (uint8_t)((bank * 16u + i) % NENGINES);
+        r->np = 61;
+        memcpy(r->name, "SLOT NAME 12", 12);
+        r->name[11] = (char)('A' + i);
+        for (k = 0; k < 61u; k++)
+            r->p[k] = (int16_t)(-(int32_t)(bank * 1000u + i * 61u + k));
+        r->note[i] = (uint8_t)(40u + i);
+        r->flags[(i + 1u) % 16u] = 4u;               /* a tie */
+    }
+}
+
 int main(void)
 {
+    static uint8_t stage[3840];
+    static up_bank_v1_t b1;
+    static up_bank_t nb;
     uint8_t a[640];
     up_rec_t r, got;
     uint32_t n, slot = 99, i;
@@ -63,35 +97,21 @@ int main(void)
     n = put_frame(a, 5, 2, "Bass One", -40);
     bad += check("UP_PUT frame < 640 bytes", 5u + n + 1u < 640u);
     bad += check("UP_PUT parses", up_parse(a, n, &r, &slot) == 0 && slot == 5u && r.engine == 2u &&
-                                      up_valid(&r) && !memcmp(r.name, "Bass One", 8) && !r.name[8]);
+                                      up_valid(&r) && !memcmp(r.name, "Bass One", 8) && !r.name[8] &&
+                                      r.ver == 2u && r.np == P_COUNT && r.macro[0] == MACRO_DEFAULT &&
+                                      r.macro[3] == MACRO_DEFAULT);
     ok = 1;
     for (i = 0; i < P_COUNT; i++)
-        ok &= up_value(&r, i) == (int16_t)(-40 + (int32_t)i);
+        ok &= r.p[i] == (int16_t)(-40 + (int32_t)i);
     bad += check("UP_PUT values (negative v14 too)", ok);
     bad += check("pattern: rest drops flags, tie has no note",
                  r.note[0] == 0 && r.flags[0] == 0 && r.note[1] == 41 && r.flags[1] == 1 && r.note[3] == 0 &&
                      r.flags[3] == 4);
     bad += check("UP_PUT short frame -> args", up_parse(a, n - 1u, &r, &slot) == 1);
-    {
-        up_rec_t keep = r;
-        ok = 1;
-        for (i = 0; i < n; i++)
-            ok &= up_parse(a, i, &r, &slot) == 1 && !memcmp(&r, &keep, sizeof r);
-        bad += check("every short prefix rejected without record changes", ok);
-        a[n] = 0;
-        bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
-                                                       !memcmp(&r, &keep, sizeof r));
-    }
     n = put_frame(a, 32, 0, "X", 0);
     bad += check("UP_PUT slot 32 -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
-    n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, its load converts) */
-    bad += check("UP_PUT engine 1 (DIGITAL): kept as it is", up_parse(a, n, &r, &slot) == 0 && slot == 3u &&
-                                                        r.engine == ENGI_DIGITAL && up_valid(&r));
-    up_migrate(&r);
-    bad += check("  a bank read keeps it engine 1 (its values DIGITAL's)", r.engine == ENGI_DIGITAL && up_value(&r, P_E4) ==
-                                                                       (int16_t)P_E4);
     n = put_frame(a, 0, 0, "", 0);
     bad += check("UP_PUT empty name -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, 0, "THIRTEEN CHRS", 0);
@@ -116,113 +136,110 @@ int main(void)
     bad += check("bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
     bad += check("bank save", st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]) == 0);
     memset(up_bank, 0, sizeof up_bank);
-    len = st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-    up_bank_check(1, len);
+    len = st_load(OBJ_UPRESET0 + 1, stage, sizeof stage);
+    bad += check("OPB2 bank object is 3144 bytes", len == (int)UP_BANK_SIZE && UP_RECORD == 196u);
+    bad += check("bank decode", up_bank_decode(&up_bank[1], stage, len, 0) == 1);
     got = *up_rec(17);
     bad += check("bank load: the record is back", up_used(17) && !memcmp(&got, &r, sizeof r));
     bad += check("other slots empty", !up_used(16) && !up_used(18) && !up_used(0));
-    len = st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
-    up_bank_check(0, len);
-    bad += check("bank 0 never written -> empty", len < 0 && !up_used(0) && up_bank[0].magic == 0);
+    len = st_load(OBJ_UPRESET0, stage, sizeof stage);
+    bad += check("bank 0 never written -> not decoded", len < 0 && !up_bank_decode(&up_bank[0], stage, len, 0) &&
+                                                         !up_used(0) && up_bank[0].magic == 0);
     bad += check("banks in 0xDC000..0xDFFFF", st_sector(OBJ_UPRESET0, 0) == 0xDC000u &&
                                                    st_sector(OBJ_UPRESET0 + 1, 1) == 0xDF000u &&
                                                    st_sector(OBJ_PROJECT0 + 3, 1) + 4096u <= 0xA0000u);
-    up_bank[1].rsize = 190;                                 /* another record layout */
-    up_bank_check(1, (int)sizeof up_bank[1]);
-    bad += check("bank with another record size -> empty", !up_used(17));
+    memcpy(&nb, &up_bank[1], sizeof nb);
+    nb.rsize = 192;                                         /* another record layout */
+    bad += check("OPB2 header with record size 192 -> not decoded", !up_bank_decode(&up_bank[0], &nb, (int)sizeof nb, 0));
+    nb.rsize = UP_RECORD;
+    bad += check("OPB2 of the wrong length -> not decoded", !up_bank_decode(&up_bank[0], &nb, (int)sizeof nb - 4, 0));
+    nb.r[1].ver = UP_VER + 1u;                              /* an unknown record version, nonempty */
+    nb.r[1].used = UP_USED;
+    bad += check("strict (restore): unknown record version rejects the bank", !up_bank_decode(&up_bank[0], &nb, (int)sizeof nb, 1));
+    bad += check("boot: unknown record version reads empty, neighbour kept",
+                 up_bank_decode(&up_bank[0], &nb, (int)sizeof nb, 0) && !up_used(1) && up_used(1u) == 0 &&
+                 !memcmp(up_rec(1u), &(up_rec_t){0}, sizeof(up_rec_t)) && up_used(UP_PER_BANK + 1u) &&
+                 !memcmp(&up_bank[0].r[1u + 0u], &(up_rec_t){0}, sizeof(up_rec_t)));
+    memset(up_bank, 0, sizeof up_bank);
     up_bank[1].magic = UP_BANK_MAGIC;
     up_bank[1].rsize = sizeof(up_rec_t);
     up_bank[1].nslot = UP_PER_BANK;
     *up_rec(17) = r;
-    up_rec(17)->ver = UP_VER_GRID + 1u;
+    up_rec(17)->ver = UP_VER + 1u;
     bad += check("record with another version -> empty", !up_used(17));
-    up_rec(17)->ver = UP_VER_GRID;
-    bad += check("a version 3 record (a drum grid) is used", up_used(17));
+    up_rec(17)->ver = UP_VER_V1;
+    bad += check("a version 1 record in an OPB2 bank -> empty (no other stride)", !up_used(17));
 
-    /* a drum grid by UP_PUT: kind 1, then bit 7 of each step's hits (bit 0) and accents (bit 1) */
-    {
-        uint8_t g[640];
-        uint32_t k, m = put_frame(g, 9, ENGI_DRUM, "My Beat", 0), at = m - 32u;
-        for (k = 0; k < 16u; k++) {
-            g[at + 2u * k] = (uint8_t)(k % 4u ? 0x08u : 0x09u);    /* HAT CL, the kick on the beats */
-            g[at + 2u * k + 1u] = (uint8_t)(k == 0u ? 0x7Fu : 0u);  /* step 1: every lane's accent (one too many) */
+    /* UPB1 (ORBIT 0.6, 192-byte records): both banks, all 32 slots, into OPB2 without a loss */
+    ok = 1;
+    for (i = 0; i < 2u; i++) {
+        uint32_t k, j;
+        fill_v1_bank(&b1, i);
+        ok &= up_bank_decode(&up_bank[i], &b1, (int)sizeof b1, 1) && up_bank[i].magic == UP_BANK_MAGIC &&
+              up_bank[i].rsize == UP_RECORD;
+        for (k = 0; k < UP_PER_BANK; k++) {
+            const up_rec_t *q = &up_bank[i].r[k];
+            ok &= up_used(i * 16u + k) && q->ver == UP_VER && q->np == 61u && q->engine == b1.r[k].engine &&
+                  !memcmp(q->name, b1.r[k].name, 12) && !memcmp(q->note, b1.r[k].note, 16) &&
+                  !memcmp(q->flags, b1.r[k].flags, 16) && !memcmp(q->p, b1.r[k].p, sizeof q->p);
+            for (j = 0; j < MACRO_COUNT; j++)
+                ok &= q->macro[j] == MACRO_DEFAULT && up_macro(q, j) == MACRO_DEFAULT;
         }
-        g[m++] = 1;
-        for (k = 0; k < 16u; k++)
-            g[m++] = (uint8_t)(k == 2u ? 3u : k == 5u ? 2u : 0u);  /* step 3: BELL hit + accent; 6: an accent alone */
-        ok = up_parse(g, m, &got, &slot) == 0 && slot == 9u && got.ver == UP_VER_GRID && up_valid(&got) &&
-             got.note[0] == 0x09u && got.flags[0] == 0x09u && got.note[1] == 0x08u && !got.flags[1] &&
-             got.note[2] == 0x88u && got.flags[2] == 0x80u && got.note[5] == 0x08u && !got.flags[5] &&
-             got.engine == ENGI_DRUM && !up_pat_empty(&got);
-        bad += check("UP_PUT kind 1: a grid record, accents only on hits", ok);
-        g[m - 17u] = 0;                                     /* kind 0: the notes and flags as before */
-        ok = up_parse(g, m, &got, &slot) == 0 && got.ver == UP_VER && got.note[2] == 0x08u && got.flags[0] == 4u;   /* (flags 0x7F: a tie) */
-        bad += check("UP_PUT kind 0: a note pattern (version 2)", ok);
-        g[m - 17u] = 1;
-        {
-            up_rec_t keep = got;
-            ok = up_parse(g, m - 1u, &got, &slot) == 1 && !memcmp(&got, &keep, sizeof got);
-            bad += check("UP_PUT short grid rejected, record unchanged", ok);
-            g[m - 17u] = 2;
-            bad += check("UP_PUT unknown kind rejected", up_parse(g, m, &got, &slot) == 1 &&
-                                                         !memcmp(&got, &keep, sizeof got));
-            g[m - 17u] = 1;
-            g[m] = 0;
-            bad += check("UP_PUT trailing byte rejected", up_parse(g, m + 1u, &got, &slot) == 1 &&
-                                                         !memcmp(&got, &keep, sizeof got));
-        }
-        up_parse(g, m, &got, &slot);
-        *up_rec(20) = got;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-        memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        bad += check("a grid record: bank round trip", up_used(20) && !memcmp(up_rec(20), &got, sizeof got));
     }
+    bad += check("UPB1 x2 -> OPB2: 32 slots, last slot, names, ties, negatives, macros DEFAULT", ok && up_used(31) && up_count_host() == 32u);
+    for (i = 0; i < P_COUNT; i++)
+        def[i] = (int16_t)(1000 + i);
+    up_params(up_rec(31), v, def);
+    ok = 1;
+    for (i = 0; i < 53u; i++)
+        ok &= v[i] == (int16_t)-(1000 + 15 * 61 + (int32_t)i);
+    for (i = P_ITYPE; i < P_E0; i++)
+        ok &= v[i] == def[i];
+    for (i = 0; i < 8u; i++)
+        ok &= v[P_E0 + i] == (int16_t)-(1000 + 15 * 61 + 53 + (int32_t)i);
+    bad += check("UPB1 np 61 slot 32: common by id, 2.6 defaults, engine 53..60 -> 63..70", ok);
+    fill_v1_bank(&b1, 0);
+    b1.r[4].ver = 2;                                        /* a version 2 record inside UPB1: invalid */
+    bad += check("strict: a version 2 record in UPB1 rejects the bank", !up_bank_decode(&nb, &b1, (int)sizeof b1, 1));
+    bad += check("boot: that record reads empty, the others converted",
+                 up_bank_decode(&nb, &b1, (int)sizeof b1, 0) && !nb.r[4].used && nb.r[5].used == UP_USED);
+    fill_v1_bank(&b1, 0);
+    bad += check("UPB1 of the OPB2 length / OPB2 magic on a UPB1 body: refused",
+                 !up_bank_decode(&nb, &b1, (int)UP_BANK_SIZE, 0) &&
+                 !up_bank_decode(&nb, &(up_bank_v1_t){.magic = UP_BANK_MAGIC, .rsize = UP_RECORD_V1, .nslot = 16},
+                                 (int)sizeof b1, 0));
+    bad += check("an empty / short / unknown bank: refused", !up_bank_decode(&nb, stage, 0, 1) &&
+                                                             !up_bank_decode(&nb, stage, 4, 0));
 
-    /* PHYS MODEL DRUM (before 1.0) -> the DRUM engine: from flash (a record of an older layout too), by UP_PUT */
-    {
-        static const int16_t OLD[8] = {4, 70, 80, 60, 50, 110, 100, 70}, NEW[8] = {2, 70, 80, 60, 50, 110, 1, 0};
-        up_rec_t d = r, m = r, o = r;
-        uint32_t k;
-        d.engine = ENGI_PHYS;
-        m.engine = ENGI_PHYS;                               /* MEMB: stays PHYS */
-        o.engine = ENGI_PHYS;
-        o.np = P_COUNT - 2u;                                /* an older layout: E0 at np - 8 */
-        for (k = 0; k < 8u; k++) {
-            up_set_value(&d, P_E0 + k, OLD[k]);
-            up_set_value(&m, P_E0 + k, (int16_t)(k ? 9 : 2));
-            up_set_value(&o, o.np - 8u + k, OLD[k]);
-        }
-        *up_rec(16) = d;
-        *up_rec(17) = m;
-        *up_rec(18) = o;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-        memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
-        ok = up_used(16) && up_rec(16)->engine == ENGI_DRUM && up_used(17) && up_rec(17)->engine == ENGI_PHYS &&
-             !memcmp(up_rec(17)->p, m.p, sizeof m.p) && up_used(18) && up_rec(18)->engine == ENGI_DRUM &&
-             up_rec(16)->ver == UP_VER;
-        for (k = 0; k < 8u; k++)
-            ok &= up_value(up_rec(16), P_E0 + k) == NEW[k] && up_value(up_rec(18), o.np - 8u + k) == NEW[k];
-        bad += check("bank load: PHYS DRUM -> DRUM engine, MEMB kept", ok);
-        n = put_frame(a, 3, ENGI_PHYS, "Old kit", 0);
-        for (k = 0; k < 8u; k++) {                          /* E0..E7 of the frame: OLD */
-            uint32_t at = 3u + 7u + 1u + 2u * (P_E0 + k), u = (uint32_t)(OLD[k] + 8192);
-            a[at - 1u] = u & 127u;
-            a[at] = (u >> 7) & 127u;
-        }
-        ok = up_parse(a, n, &got, &slot) == 0 && got.engine == ENGI_DRUM;
-        for (k = 0; k < 8u; k++)
-            ok &= up_value(&got, P_E0 + k) == NEW[k];
-        bad += check("UP_PUT of PHYS DRUM -> DRUM engine", ok);
-    }
+    /* macros by count: np 61 ids 53..60 -> 63..70; np 72: common 63 unknown -> DEFAULT, 64..71 -> 63..70 */
+    memset(&r, 0, sizeof r);
+    r.used = UP_USED, r.ver = UP_VER, r.engine = 0, r.np = 61, r.name[0] = 'M';
+    r.macro[0] = 53, r.macro[1] = 60, r.macro[2] = 52, r.macro[3] = 61;
+    bad += check("macro ids by count (np 61)", up_macro(&r, 0) == P_E0 && up_macro(&r, 1) == P_E7 &&
+                                                  up_macro(&r, 2) == P_VLEAD && up_macro(&r, 3) == MACRO_DEFAULT);
+    r.np = 72;
+    r.macro[0] = 63, r.macro[1] = 64, r.macro[2] = 71, r.macro[3] = MACRO_DEFAULT;
+    bad += check("macro ids by count (np 72): 63 unknown, 64 -> P_E0, 71 -> P_E7",
+                 up_macro(&r, 0) == MACRO_DEFAULT && up_macro(&r, 1) == P_E0 && up_macro(&r, 2) == P_E7 &&
+                 up_macro(&r, 3) == MACRO_DEFAULT);
+    r.np = P_COUNT;
+    r.macro[0] = P_ITYPE, r.macro[1] = 0, r.macro[2] = P_LPOL, r.macro[3] = P_E3;
+    memset(&nb, 0, sizeof nb);
+    nb.magic = UP_BANK_MAGIC, nb.rsize = UP_RECORD, nb.nslot = UP_PER_BANK;
+    nb.r[15] = r;
+    nb.r[14] = r;
+    nb.r[14].macro[1] = 99;                                 /* (an id of no parameter: DEFAULT) */
+    bad += check("OPB2 macros kept through store / decode (the last slot)",
+                 st_save(OBJ_UPRESET0, &nb, sizeof nb) == 0 && (len = st_load(OBJ_UPRESET0, stage, sizeof stage)) > 0 &&
+                 up_bank_decode(&up_bank[0], stage, len, 0) && !memcmp(up_bank[0].r[15].macro, r.macro, 4) &&
+                 up_bank[0].r[14].macro[1] == MACRO_DEFAULT && up_bank[0].r[14].macro[2] == P_LPOL);
 
     /* map by count: a record from a build with 2 parameters fewer */
     for (i = 0; i < P_COUNT; i++)
         def[i] = (int16_t)(1000 + i);
     r.np = P_COUNT - 2u;
     for (i = 0; i < P_COUNT; i++)
-        up_set_value(&r, i, (int16_t)i);
+        r.p[i] = (int16_t)i;
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < P_E0; i++)
@@ -232,65 +249,45 @@ int main(void)
     bad += check("np < P_COUNT: mapped by count", ok);
     /* a record saved before the SLICER (P_COUNT 53, P_E0 45): the four SLICER parameters (just
      * before P_E0) take their defaults, everything else keeps its id */
-    r.ver = 2;
     r.np = 53;
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD &&
-         P_VOIC + 1 == P_E0 && P_E0 == 83 && P_COUNT == 91;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_TFLT == 50 && P_VLEAD == 52 && P_E0 == 63;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
     for (i = P_SLCR; i < P_E0; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER and matrix defaults, E0..E7 kept", ok);
-    /* a record saved before the modulation matrix (P_COUNT 57, P_E0 49): the twelve matrix parameters (just
-     * before P_E0) take their defaults (every slot OFF), the SLICER and everything else keep their ids */
+    bad += check("old record (np 53): SLICER, CHORD and FILTER defaults, E0..E7 kept", ok);
+    /* a record of SLOOP 2.0 .. 2.3 (P_COUNT 58, P_E0 50): only the FILTER (2.4) takes its default */
+    r.np = 58;
+    for (i = 0; i < 58u; i++)
+        r.p[i] = (int16_t)(3000 + i);
+    up_params(&r, v, def);
+    ok = 1;
+    for (i = 0; i < P_TFLT; i++)
+        ok &= v[i] == (int16_t)(3000 + i);
+    ok &= v[P_TFLT] == def[P_TFLT] && v[P_STRUM] == def[P_STRUM] && v[P_VLEAD] == def[P_VLEAD];
+    for (i = 0; i < 8u; i++)
+        ok &= v[P_E0 + i] == (int16_t)(3000 + 50 + i);
+    bad += check("2.3 record (np 58): FILTER, STRUM, VLEAD defaults, CHORD and E0..E7 kept", ok);
+    /* a record of SLOOP 1.0 (P_COUNT 57, P_E0 49): CHORD (SLOOP 2.0) takes its default */
     r.np = 57;
     for (i = 0; i < 57u; i++)
         r.p[i] = (int16_t)(3000 + i);
     up_params(&r, v, def);
     ok = 1;
-    for (i = 0; i < 49u; i++)
+    for (i = 0; i < P_CHORD; i++)
         ok &= v[i] == (int16_t)(3000 + i);
-    for (i = P_M1SRC; i <= P_M4AMT; i++)
-        ok &= v[i] == def[i];
+    ok &= v[P_CHORD] == def[P_CHORD];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(3000 + 49 + i);
-    bad += check("old record (np 57): SLICER kept, matrix defaults, E0..E7 kept", ok);
-    /* records of versions 4 (packed bytes) and 5 (a drum grid) saved before the chord keys (P_COUNT 89, P_E0
-     * 81) and before the FM operator ENVs (69, P_E0 61): their engine values land on today's E0..E7 (83..90),
-     * the chord keys take their defaults (OFF, CLOSE), the operator parameters too for 69 */
-    {
-        static const uint8_t VERS[2] = {UP_VER, UP_VER_GRID}, NPS[2] = {89, 69};
-        uint32_t a, b;
-        ok = 1;
-        for (a = 0; a < 2u; a++)
-            for (b = 0; b < 2u; b++) {
-                uint32_t np = NPS[b];
-                up_rec_t o;
-                memset(&o, 0, sizeof o);
-                o.used = UP_USED; o.ver = VERS[a]; o.engine = 1; o.np = (uint8_t)np;
-                memcpy(o.name, "OLD", 3);
-                for (i = 0; i < np; i++)
-                    up_set_value(&o, i, (int16_t)(i % 100u - 30));
-                ok &= up_valid(&o);
-                up_params(&o, v, def);
-                for (i = 0; i < np - 8u; i++)
-                    ok &= v[i] == (int16_t)(i % 100u - 30);
-                for (i = np - 8u; i < P_E0; i++)
-                    ok &= v[i] == def[i];
-                for (i = 0; i < 8u; i++)
-                    ok &= v[P_E0 + i] == (int16_t)((np - 8u + i) % 100u - 30);
-            }
-        bad += check("v4 / v5 records of 89 and 69 parameters: E0..E7 at 83..90, the chord keys their defaults", ok);
-    }
-    r.ver = UP_VER;
+    bad += check("SLOOP 1.0 record (np 57): CHORD default, the rest kept", ok);
     r.np = P_COUNT;
     for (i = 0; i < P_COUNT; i++)
-        up_set_value(&r, i, (int16_t)i);
+        r.p[i] = (int16_t)i;
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < P_COUNT; i++)
@@ -316,3 +313,4 @@ int main(void)
     printf("%s\n", bad ? "USER PRESET TEST FAILED" : "user preset test passed");
     return bad != 0;
 }
+

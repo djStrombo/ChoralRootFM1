@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM-1 system HAL: P33 access, watchdog, reset reason, reboot / UBOOT entry
- * No vendor code; call with interrupts off
- * (no IRQs are enabled yet, so nothing else touches P33).
+/* FM-1 system HAL: P33 access, watchdog, reset reason, reboot / UBOOT entry.
+ * Call with interrupts off so nothing else touches P33.
  *
  *   fm1_reset_reason()   snapshot P3_RST_SRC / RST_SRC (call first thing)
  *   fm1_wdt_arm(t)       reset-mode watchdog, t = 0xA 1 s .. 0xF 32 s
@@ -15,11 +14,6 @@
  *   fm1_updata_parm_clear()  zero the record (CRC 0: ignored on a warm reset)
  *   fm1_mailbox_clear()  zero 0x01C7FD80..0x01C7FDFF (boot info, mailbox) at cold start
  *   fm1_mem_readable(a, n) / fm1_peek8(a)   debug reads of RAM / XIP only
- *   fm1_stub_word(i)     the boot stub's eight RAM words (firmware/stub/stub.c): 0 the rescue word, 1 info ("SB",
- *                        version, decision), 2 the TIMER4 ticks it took, 3 detail, 4..6 its key samples (OCT-,
- *                        OCT+, no column), 7 the PA inputs at the last one; nothing in the app clears them
- *   fm1_stub_request(w)  leave w in the stub's word 0 (stub_core.h STUB_REQ_TEST / STUB_REQ_RESCUE) and restart
- *                        by a core reset without a record: the SPL boots the app's slot, i.e. the stub
  */
 #pragma once
 #include <stdint.h>
@@ -32,8 +26,6 @@
 #define FM1_PWR_CON (*(volatile uint32_t *)0x10000u)
 #define FM1_UPDATA_PARM ((volatile uint8_t *)0x01C7FD88u)
 #define FM1_UPDATA_PARM_LEN 112u
-#define FM1_STUB_RAM ((volatile uint32_t *)0x01C7C000u)   /* 8 words below NOINIT (app.ld) */
-#define FM1_HAVE_STUB 1
 
 static uint32_t fm1_p33_timeouts;
 
@@ -54,7 +46,7 @@ static uint8_t fm1__p33_xfer(uint8_t b)
 static void fm1__p33_cs(uint32_t a)
 {
     if (a & 0x8000u) {
-        FM1_P33_CON |= (1u << 0) | (1u << 8);    /* RTC domain */
+        FM1_P33_CON |= (1u << 0) | (1u << 8);    /* R3 (RTC) domain */
     } else {
         FM1_P33_CON &= ~(1u << 8);
         FM1_P33_CON |= 1u << 0;
@@ -117,8 +109,6 @@ static void fm1_reset_reason(void)
 static void fm1_reboot(void)
 {
     __asm__ volatile("cli");
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it must not */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* run old code across the reset / while a loader writes */
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
     for (;;)
         ;
@@ -129,8 +119,6 @@ static void fm1_enter_uboot(void)
     static const char k[16] = "usb_update_mode";
     uint32_t i;
     __asm__ volatile("cli");
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it must not */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* run old code across the reset / while a loader writes */
     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
@@ -144,8 +132,6 @@ static void fm1_enter_uboot(void)
 
 FM1_INLINE void fm1_core_reset(void)
 {
-    *(volatile uint32_t *)0x1EEE004u |= 0x2u;          /* the second core held first (fm1_cpu1.h): it must not */
-    *(volatile uint32_t *)0x1EEE004u &= ~0x8u;         /* run old code across the reset / while a loader writes */
     FM1_PWR_CON |= 0x10u;
     for (;;)
         ;
@@ -177,21 +163,6 @@ FM1_INLINE void fm1_mailbox_clear(void)   /* before fm1_guard_enable (it write-p
         *s = 0;
 }
 
-FM1_INLINE uint32_t fm1_stub_word(uint32_t i) { return FM1_STUB_RAM[i & 7u]; }
-
-/* as fm1_enter_update, with the record cleared instead of written (the loader's own restart after its write: the
- * SPL then boots the app's slot) and the request in the stub's word; the caller detaches USB first, as there */
-FM1_INLINE void fm1_stub_request(uint32_t word)
-{
-    __asm__ volatile("cli");
-    if (!(*(volatile uint32_t *)0x1EEE240u & 1u))       /* drop CPU0 write limits, as fm1_enter_uboot */
-        *(volatile uint32_t *)0x1EEE240u = 0xE7u;
-    *(volatile uint32_t *)0x1EEE348u = 0;
-    fm1_updata_parm_clear();
-    FM1_STUB_RAM[0] = word;
-    fm1_core_reset();
-}
-
 /* RAM and the XIP window only: SFR reads can have side effects */
 static int fm1_mem_readable(uint32_t a, uint32_t n)
 {
@@ -199,3 +170,4 @@ static int fm1_mem_readable(uint32_t a, uint32_t n)
            (a >= 0x02000000u && a + n <= 0x02100000u && a + n >= a);
 }
 FM1_INLINE uint8_t fm1_peek8(uint32_t a) { return *(const volatile uint8_t *)a; }
+

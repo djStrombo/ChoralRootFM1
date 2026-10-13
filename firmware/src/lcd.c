@@ -1,10 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* ST7789-class 240x240 panel on SPI1:
- * PC9 CLK, PC10 DO, PC7 CS, PC8 D/C, backlight PA2 active low. Polled DMA
- * transfers; every source buffer must be in RAM.
- * A pixel transfer is left running (lcd_busy): the next LCD access, or a write
- * to its source buffer (lcd_sync), waits for it, so the main loop works
+/* ST7789-class 240x240 panel on SPI1: PC9 CLK, PC10 DO, PC7 CS, PC8 D/C,
+ * backlight PA2 active low. Polled DMA transfers; every source buffer must be
+ * in RAM. A pixel transfer is left running (lcd_busy): the next LCD access, or
+ * a write to its source buffer (lcd_sync), waits for it, so the main loop works
  * while the last strip of a frame goes out. */
 /* pins and SPI1: hal/fm1_lcd_hw.h */
 #ifndef LCD_BAUD
@@ -95,10 +94,10 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     lcd_data(px, w * h * 2u);
 }
 
+/* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
+ * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
+ * cmd 0x00 = wait (data byte: ~ms). */
 #if BOARD_SMK37
-/* SMK-37 ST7789V 240x240: the stock v016 table with a SWRESET in
- * front (stock relies on the power-on reset) and NORON instead of its DISPOFF + 50 ms;
- * lcd_init sends DISPON after the clear. Same format as below. */
 static const uint8_t LCD_SEQ[] = {
     0x01, 0,                     /* SWRESET */
     0x00, 1, 150,
@@ -120,9 +119,6 @@ static const uint8_t LCD_SEQ[] = {
     0x13, 0,                     /* NORON */
 };
 #else
-/* ST7789V init: reset, then 16-bit colour, scan direction and IPS inversion;
- * voltage and gamma stay at the defaults. Format: cmd, n, n data bytes;
- * cmd 0x00 = wait (data byte: ~ms). */
 static const uint8_t LCD_SEQ[] = {
     0x01, 0,                     /* SWRESET */
     0x00, 1, 150,
@@ -134,7 +130,6 @@ static const uint8_t LCD_SEQ[] = {
     0x13, 0,                     /* NORON */
 };
 #endif
-
 static void lcd_init(void)
 {
     uint32_t r, x;
@@ -155,81 +150,4 @@ static void lcd_init(void)
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
 }
-
-/* MENU > SCREEN OFF (ui.c scr_frame): the panel dark while the sound goes on. s 0: DISPOFF, SLPIN; 1: SLPOUT (the
- * panel wants 120 ms after it, and 120 ms after SLPIN before it: ui.c waits, a frame at a time, never here); 2: DISPON
- * (after the frame that redrew it all). The panel keeps its RAM asleep, but the UI redraws everything before it shows
- * (ui.force). The backlight stays on: PA2 is also the key matrix 595's /OE, so with it
- * high no button, key or knob reads and nothing could wake the screen (#157 follow-up, found on 1.1.5) */
-static void lcd_power(uint32_t s)
-{
-    if (s == 1u)
-        lcd_cmd(0x11);                             /* SLPOUT */
-    else if (s == 2u)
-        lcd_cmd(0x29);                             /* DISPON */
-    else {
-        lcd_cmd(0x28);                             /* DISPOFF */
-        lcd_cmd(0x10);                             /* SLPIN */
-    }
-}
-/* the crash screen, UPDATE, UBOOT: the panel on at once if SCREEN OFF had it asleep (blocking, ~240 ms; the IRQs
- * left as they are: the crash handler calls it) */
-static void lcd_wake_now(void)
-{
-    lcd_spin(3000000u);                            /* (120 ms after a SLPIN) */
-    lcd_cmd(0x11);
-    lcd_spin(3000000u);
-    lcd_cmd(0x29);
-}
-
-#if BOARD_SMK37
-/* The 16 RGB pads (SMK-37 Pro): WS2812-class LEDs on SPI1 group B (PC10), one SPI byte per
- * LED bit (0xF0 = 1, 0xC0 = 0, MSB first, GRB), 36 zero bytes of latch first: 420 bytes, as
- * the stock firmware sends them. The frame goes out between LCD transfers (LCD CS high),
- * blocking for ~0.5 ms; padled_flush() only sends when a colour changed. */
-#define PADLED_N 16u
-#define PADLED_LATCH 36u
-static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u];
-static uint32_t padled_rgb[PADLED_N];
-static uint8_t padled_dirty = 1;
-
-/* hardware pad (8..15 top row, 0..7 bottom row, left to right; smk_input.h SMK_PAD_OF_WHITE) -> position in
- * the chain (stock table) */
-static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
-
-static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
-{
-    uint32_t c = (uint32_t)g << 16 | (uint32_t)r << 8 | b;
-    if (pad < PADLED_N && padled_rgb[pad] != c) {
-        padled_rgb[pad] = c;
-        padled_dirty = 1;
-    }
-}
-
-static void padled_flush(void)
-{
-    uint32_t p, i;
-    if (!padled_dirty)
-        return;
-    padled_dirty = 0;
-    for (p = 0; p < PADLED_N; p++) {
-        uint8_t *o = padled_buf + PADLED_LATCH + PADLED_SLOT[p] * 24u;
-        for (i = 0; i < 24u; i++)
-            o[i] = (padled_rgb[p] >> (23u - i)) & 1u ? 0xF0u : 0xC0u;
-    }
-    lcd_sync();
-    fm1_padled_send(padled_buf, sizeof padled_buf);
-    fm1_lcd_wait();
-    fm1_padled_done();
-}
-
-static void padled_init(void)
-{
-    uint32_t p;
-    for (p = 0; p < PADLED_N; p++)
-        padled_rgb[p] = 0;
-    padled_dirty = 1;
-    padled_flush();
-}
-#endif
 

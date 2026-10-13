@@ -15,3 +15,4 @@ for f in sys.argv[1:]:
     sr, x = read_any_wav(Path(f))
     a = int(0.25 * sr)
     print(f"{f}: {yin(x[a:a + 4000], sr, interpolate=False):.1f} Hz")
+

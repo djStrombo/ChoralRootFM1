@@ -1,178 +1,101 @@
-# ChoralRoot FM-1
+# ORBIT
 
-A Telepathic Orchid-style chord instrument as a firmware for the **M-VAVE FM-1**: one hand plays
-roots, the other shapes chords; voicing, Key Mode, performance modes, bass, a looper — with the
-FM-1's own sound engines, a colour screen, USB and TRS MIDI. Built on
-[Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) for the
-platform and the engines, and on [choralroot](https://github.com/Quixotic7/choralroot) (the monome
-grid version) for the musical engine. Independent of and unaffiliated with Telepathic Instruments
-and M-VAVE.
+**Make a beat, shape three synths, then rearrange their events on Tape.**
 
-**The manual:** [docs/MANUAL.md](docs/MANUAL.md) (the first five minutes, every button, knob and Options entry, the
-looper, the sound editor, MIDI and USB, updating and recovery, a quick-reference table).
+ORBIT is a four-track groovebox firmware for the **M-VAVE FM-1**: three synth parts and a drum machine, played through a color-coded Synth / Drum / Event Tape / Mixer workflow. Record a loop, turn it into a song, and keep your favorite sound controls together with user macros. Based on SLOOP/Felucca, with original ORBIT engines and graphics inspired by the original OP-1's four encoder roles.
+
+[Install](#install) · [Get started](GUIDE.md#get-started) · [User guide](GUIDE.md) · [MIDI controllers](docs/MIDI-CONTROL.md) · [0.7.0 release notes](docs/releases/0.7.0.md) · [Try the native preview](#try-the-native-preview)
+
+![Event Tape, synth, envelope, mixer and sampler screens](docs/orbit-preview-0.2.png)
+
+*Actual firmware UI rendered by the native host harness. These are earlier ORBIT screens, not hardware photographs or new 0.7.0 captures.*
+
+## Make a loop, then move its events
+
+1. Select **track 4** with ALGORITHM and choose a drum kit with PRESETS. Press REC and play; on an empty project in free mode, press REC on the next downbeat to close the loop.
+2. Select **track 1**, choose a sound, and record a bass line. Add chords or a melody on tracks 2 and 3.
+3. Press **HOME** for Event Tape. Set the region with KNOB 2/3, choose COPY or LIFT with KNOB 4, and press OCT- to capture it. Set the destination with KNOB 1 and press OCT+ to drop it.
+4. Press **GLO** for Mixer to balance the four tracks. Save variations into sections A-D and play or chain them with the SAVE layer.
+
+Tape edits **sequencer events**, including notes, drum hits, timing, fills and parameter locks. It is not audio recording, PCM overdubbing or tape-speed playback. Drop overwrites destination events, so save a section before experimenting. See the [Tape controls](GUIDE.md#event-tape).
+
+## What makes ORBIT its own instrument
+
+- **Event Tape:** a four-track event timeline with reels, an inclusive selection and COPY / LIFT / DROP, alongside the step sequencer.
+- **Original sounds:** SWARM's six detuned harmonic oscillators, PULSE's dual pulse/PWM synthesis, FM4's four sine operators, and **CLOUD**, an oscillator-source granular engine. CLOUD makes grains from oscillators; **GRAIN** makes grains from samples.
+- **Controls that follow the sound:** four blue / green / white / orange encoders, faster travel through wide ENV/LFO ranges, and an instant preset list that auditions each selection on Tape or Mixer.
+- **User macros:** assign four destinations on **MACROS**, edit their values on **PERFORM** through EDIT/SELECT, and save the map with a USER sound or project. HOME remains Tape / Visualizer.
+- **A real-firmware preview:** the native preview runs ORBIT's C sound engine, sequencer and display rather than a separate browser synth.
+
+## Sounds and performance
+
+| Area | What you can play and edit |
+| --- | --- |
+| Instruments | **17 engines, 189 factory sounds** in the default build: analog, FM, phase distortion, chip, sampler, formant, three-oscillator, organ, sample granular, SWARM, PULSE, FM4, FM6, PHYS, NOISE, CLUSTER and CLOUD |
+| Tracks | **3 synth + 1 drum** multitimbrality; synth parts share **8 voices globally**, not eight each. Engine limits and CPU load also apply: CLUSTER at most **4** per part, CLOUD at most **3** |
+| Sound design | ADSR and envelope destinations, tempo-synced envelopes and LFO, retrigger/free-running and bipolar/unipolar LFO, glide, voice modes and ANALOG LP/BP/HP filter |
+| Sequencing | Up to 64 steps per track, four-note chords, ties, ratchets, swing, note length, step velocity, 24 parameter locks per track, microtiming and fill conditions |
+| Live playing | Free or tempo recording, overdub, note repeat, one-key chords, mute/solo/fill, section chains, MIDI keyboard step entry and live drum mutes |
+| Effects | Per-track **INSERT** with eight effect types and dry/wet; filter, slicer and sends; **27 punch-in effects**, REV/ECHO THROW and dotted delay; master DUST/DUCK/filter and a look-ahead limiter |
+| Texture | A separate background bed: vinyl, tape, rain, wind, radio, room tone or USR sample, with tone, tempo movement and optional ducking |
+| Your material | Four user sample slots, sample CHOP and drum-kit editing, SYN1-SYN4 drum synthesis, 32 USER sounds, four project/section slots and a 27-patch FM6 bank |
+| Connections | USB MIDI, TRS MIDI IN, MIDI clock, sustain, pitch bend, Program Change and **16 persistent MIDI-learn slots**; stereo USB audio at 44.1 or 48 kHz |
+| Editor | Sound and macro editing, piano roll, MIDI files, song arrangement, DX7 SysEx, samples, libraries and full backup/restore over Web MIDI |
+
+CLUSTER uses a translated original OP-1 #246 oscillator core with 16 raw presets; pitch, envelope, velocity and effects are ORBIT's. Its four-voice cap is conditional on the shared budget and available CPU time, not a hardware polyphony guarantee. Read [CLUSTER's scope and limits](docs/OP1-CLUSTER.md).
+
+## Listen and explore
+
+[Listen to FIRST LIGHT](docs/audio/orbit-first-light.mp3): an original four-bar, 108 BPM loop of FM4 bass, SWARM chords, PULSE melody and 808 drums, rendered by the C sequencer/DSP. [Hear the original engine examples](docs/audio/orbit-engines-0.3.mp3). These are host renders, not FM-1 recordings.
+
+On the device, load FIRST LIGHT through **hold HOME > SYSTEM > DEMO SONG > OCT+ > OCT+ again**. Stop and save your work first: it replaces the working patterns and sounds. See [the guide](GUIDE.md#first-light-demo).
+
+![FIRST LIGHT on Event Tape](docs/orbit-demo-0.3.png)
 
 ## Install
 
-Try it in the browser first: <https://quixotic7.github.io/ChoralRootFM1/emu/> (the same firmware, with sound, no
-FM-1 needed).
+The browser installation address is **[dspaudio.github.io/orbit](https://dspaudio.github.io/orbit/)**. Check the version shown by the installer before writing.
 
-**From the browser:** open the web installer at <https://quixotic7.github.io/ChoralRootFM1/webapp/installer/> in
-Chrome or Edge, connect the FM-1 and press Install. The button names the version it writes (the newest), and the
-page lists what is new in it beside the button. "Other versions" under the button offers the older ones from 0.16
-on, each with its notes and a sentence on what going back means (0.15 and older are only on
-[Releases](https://github.com/Quixotic7/ChoralRootFM1/releases): no protected update path). Nothing is
-installed on the computer: the page talks to the FM-1 over Web MIDI, and the firmware files come from the site
-itself (`firmware/`, with their SHA-256, which the page checks before it writes). Do not unplug while it writes; an
-interrupted install is resumed by pressing Install again (after a power loss too, from 0.16 on: see "If an install
-was interrupted"). An update keeps your saved sounds, loops and settings.
-Afterwards the FM-1 restarts and reports the identity `FM-1_920`. Before installing, the page saves a backup of what
-is stored on the FM-1 (settings, user sounds, loops, FM6 patches) to a file, and after installing over
-Felucca it offers that backup back; its Back up and Restore buttons do the same at any time.
+The site downloads the latest stable release automatically and validates its package before enabling **Connect**. Use Chrome or Edge, a USB data cable and a direct connection. Connect grants Web MIDI SysEx access; **Install** is a separate action after device preflight. Keep power and USB connected during the write. If the download fails, retry it; the page does not accept a local package picker.
 
-**Before any install:** charge the FM-1 fully (it updates on its battery), connect it straight to the computer with a
-data cable (no hub), keep the computer awake, and leave the cable alone until the installer prints "done". Up to 0.15
-an update interrupted mid-write could leave the FM-1 dark with no USB device at all (docs/INSTALL-COMPAT.md, "Before
-an install"); from 0.16 on it comes back in update mode (below), except during the first second of the install of
-0.16 itself over an older version.
+**BACKUP before every update.** Stop playback and use the editor's Projects / Backup export. ORBIT 0.7.0 writes **ORP7 projects and OPB2 preset banks**; it imports legacy ORBIT formats, but raw SLOOP 2.6 **FUN6 is rejected**. Older firmware cannot read new saves, and its autosave may overwrite them. Keep a pre-update backup for a downgrade. See [storage and recovery](GUIDE.md#backup-updates-and-downgrades).
 
-**From the command line:** download `choralroot-X.Y.fwsc` from
-[Releases](https://github.com/Quixotic7/ChoralRootFM1/releases) (`SHA256SUMS` next to it), then
+Local fallback for a verified package:
 
-```
-pip3 install python-rtmidi
-python3 tools/fm1_install.py choralroot-X.Y.fwsc --backup .   # back up to ./choralroot-backup-YYYYMMDD.json, install
-python3 tools/fm1_install.py --info          # identity of the connected FM-1 (FM-1_920 after the install)
-python3 tools/fm1_install.py --restore FILE  # a backup back onto the FM-1
-python3 tools/fm1_install.py --sounds        # the 32 user sounds; --export-sound N FILE / --import-sound N FILE /
-                                             # --rename-sound N NAME / --delete-sound N (docs/SOUNDS.md)
+```sh
+python3 -m pip install mido python-rtmidi
+python3 tools/fm1_install.py --info
+python3 tools/fm1_install.py build/orbit.fwsc
 ```
 
-**Single sounds as files:** the installer page's Sounds section and the commands above export, import, rename and
-delete one user sound at a time (its record and its VA / FM6 / CZ-1 patch) as a small JSON file, without a restart.
+The release target is **0.7.0**, install identity **FM-1_900**. Build with the default command, **not --release**. See [BUILDING.md](BUILDING.md) for the toolchain, local site generation and CLI instructions. Generated firmware packages are not committed to this tree.
 
-**The device manager** (`webapp/installer/manager.html` on the site, [docs/DEVICE-MANAGER.md](docs/DEVICE-MANAGER.md)):
-the FM-1's pools per engine and its ten loop slots next to a library (this browser, files, the factory packs); Place,
-Keep, Swap, Rename, Delete, Undo, a back-up, and an on-screen keyboard over Web MIDI. `manager.html?sim=1` runs it
-against a simulated FM-1, no device needed.
+**Validation:** 0.7.0 was installed on an FM-1, with transfer completion, automatic reboot and actual version/PING responses verified. The earlier short USB recording of **0.6.0 on 2026-10-10 is historical**, not 0.7.0 audio evidence. 0.7.0 hardware timing, power-loss recovery and physical crackle resolution have not been verified. Measurements and release gates belong in the [validation record](docs/VALIDATION.md), not a product promise.
 
-**Back to the stock firmware:** the installer's "Return to official V15" section installs the official FM-1
-V15 firmware, `FM-1.fwsc`, which you download yourself from M-VAVE's
-[downloads page](https://www.m-vave.com/download) (or `python3 tools/fm1_install.py FM-1.fwsc --backup .`). It
-saves a backup first: the stock firmware cannot use ChoralRoot's user sounds, loops or settings; reinstall ChoralRoot
-and press Restore to bring them back. Backups move between firmwares too: a Felucca backup restores its settings,
-user sounds and FM6 patches on ChoralRoot (its samples stay in the file: ChoralRoot is all-synth), and back (BUILDING.md, "Backup and restore").
+## Try the native preview
 
-**Over which firmware:** the stock firmware, Felucca 1.0 or later, Melodee and ChoralRoot. The installers refuse
-Sloop, the Felucca 0.x betas and firmwares they cannot identify: an FM-1 has been bricked by an install over Sloop,
-and Felucca 0.9-beta to 1.0 bricked several (the loader wrote correctly both times; the cause is still open;
-[docs/INSTALL-COMPAT.md](docs/INSTALL-COMPAT.md)). Return to the official V15 with that firmware's installer first.
+Python 3, a C compiler and Pillow are required:
 
-**SAFE MODE.** If ChoralRoot crashes twice in a row within 30 s of starting (switching it off and on does not count),
-it starts in SAFE MODE (a yellow screen, "Safe mode" on the top line): it plays its factory sounds and ignores what is
-stored in the flash (settings, user sounds, FM6 bank, loops), which stays untouched. Options > Flash Data (OCT+ twice)
-erases that data and restarts; switching off and on tries the stored data again. Installing and Backup still work in
-SAFE MODE, so you can save a backup first. Only if SAFE MODE itself crashes twice does the unit go to update mode
-(ROM boot).
+```sh
+python -m pip install -r requirements.txt
+python tools/orbit_preview.py --port 8080
+```
 
-**If an install was interrupted** (ChoralRoot 0.16 and later, which carry the boot stub: docs/BOOT-SAFETY.md,
-[docs/releases/0.16.md](docs/releases/0.16.md)): switch the FM-1 on. The key LEDs flash three times, the screen
-stays black and the FM-1 is in update mode: open the installer and press Install, it finishes the write. The same on
-purpose, whatever state the firmware is in: **hold OCT- (alone) while switching on**, three flashes, open the
-installer, Install (or switch off and on to start the firmware again: nothing was written). The OCT- gesture is new
-in 0.16. From 0.18 on, the same without switching off: **hold OCT-, OCT+ and HOME for 5 seconds** while ChoralRoot
-runs (a countdown from 2 s; let go to cancel). The two OCT keys alone are PANIC and nothing else: they no longer
-lead to the chip's USB boot when held.
-One long flash instead of three: switch off for 10 seconds and try once more; one long flash again means no update
-loader is stored (it is kept from the unit's last install on) and the FM-1 is the USB disk "WL82 UBOOT1.00" until it
-is switched off and on.
+Open http://127.0.0.1:8080 and press **Start audio**. The preview includes its own demo pattern; firmware boot does not load that preview pattern. Audio is buffered approximately 250-550 ms, project saves are **nonpersistent host doubles**, and sample upload is unsupported. Button taps work; held-button menus and layer combinations require the hardware. The separately deployed [WebAssembly emulator](https://dspaudio.github.io/orbit-web-emu/) is not automatically updated by this release.
 
-**If the FM-1 no longer starts** (black screen, the computer shows a USB disk "WL82 UBOOT1.00"): leave it on for 2
-minutes to see whether it restarts by itself, try holding OCT- and OCT+ while switching on (10 s), and check what the
-computer sees (docs/INSTALL-COMPAT.md, "If an FM-1 is dark"); then
-[MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker). If it does not show up as that disk either, the
-hardware route is [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+## Documentation
 
-Installing firmware is at your own risk.
+- [GUIDE.md](GUIDE.md): panel workflow, recording, Event Tape, sound design, macros and saving.
+- [MIDI control](docs/MIDI-CONTROL.md): channels, CC learn, MiniLab routing and controller limits.
+- [BUILDING.md](BUILDING.md): build, local installer site and checks.
+- [0.7.0 release notes](docs/releases/0.7.0.md) and [validation record](docs/VALIDATION.md).
+- Earlier releases: [0.6.0](docs/releases/0.6.0.md), [0.5.0](docs/releases/0.5.0.md), [0.4.1](docs/releases/0.4.1.md); [SLOOP 2.5 integration](docs/SLOOP-2.5-INTEGRATION.md).
+- [Original ORBIT engines](docs/OP1-ENGINES.md), [CLUSTER](docs/OP1-CLUSTER.md), [design](DESIGN.md), [editor protocol](web/EDITOR_PROTOCOL.md) and [Dots](DOTS.md).
 
-## Status
+## Origin, credits and licensing
 
-A public beta, at version 0.21 ([docs/releases/](docs/releases/) has the notes of every version). What is in it; the
-[manual](docs/MANUAL.md) says how to play each part:
+ORBIT began from the [isod89/sloop-fm1](https://github.com/isod89/sloop-fm1) v2.3 snapshot **d691ba7b2d922f1a1f41a3622cffe29ce41c5506**, not a fork retaining upstream history. SLOOP v2.4.1 and v2.5 changes were subsequently integrated; 0.7.0 brings the functional v2.6 changes from immutable commit **[d30d6553353373cf5506b9ed285fc4a2aa0c30ef](https://github.com/isod89/sloop-fm1/tree/d30d6553353373cf5506b9ed285fc4a2aa0c30ef)** while retaining ORBIT's registry, graphics and storage contract. The [original README](README-SLOOP.md) remains available.
 
-- **Chords**: the chord block on the keybed (DIM MIN MAJ SUS on the black keys F#3 G#3 A#3 C#4, 6 m7 M7 9 on the
-  white keys F3 G3 A3 C4, B3 = LOCK), roots on D4..G5, voicing on KNOB 1, Key Mode, the Simple / Advanced / Free play
-  styles, secret chords, LATCH.
-- **Layers** that lock open on a hold (KEY, PERF, FX, BASS, SEQ for the metronome, LOOP), each a picker over a row of four knob
-  cells; OCT- or HOME closes them.
-- **Bass** (four behaviours), **performance modes** (strum, slop, arpeggio, twelve patterns, harp), **FX** (reverb,
-  a stereo chorus, a stereo delay, drive), a metronome.
-- **The looper**: it records chords, ten slots, five record modes (Overwrite, Advance, Overdub, Replace, Step), the
-  PLAY menu; from 0.18 on saving is manual: a loop is written by the global save (SAVE held) or when its slot is
-  left with unsaved changes (up to 0.17: at every stop) ([docs/LOOPER.md](docs/LOOPER.md)).
-- **Five engines**, in the picker's order: FM6 (Melodee's: DX7 voices rendered as Dexed renders them, DX7 SysEx
-  import, [docs/FM6.md](docs/FM6.md)), FM TONE (engine 15, `eng_quad.c`, code name QUAD: four-operator FM in the style
-  of the Digitone, aligned with the Digitone manual's algorithms, carrier levels and controls,
-  [docs/QUAD.md](docs/QUAD.md)), VA ([docs/VA.md](docs/VA.md)), CZ-1 (Melodee's, [docs/CZ1.md](docs/CZ1.md)), WHEEL.
-  (PHASE, LOFI, VOICE, TRIO, NOISE and PHYS, Felucca's, are retired since 0.18: a sound saved on one stays in its
-  slot and plays as a stand-in on the VA.) (Felucca's ANALOG is retired since 0.14: the VA replaces it; an ANALOG sound
-  saved before loads on the VA.) One preset pool per engine (INIT, the factory presets, yours), 32 saved sounds, the
-  sound editor ([docs/PRESETS.md](docs/PRESETS.md), [docs/EDITOR.md](docs/EDITOR.md)).
-- **Views**: Chord, Keyboard, Notes, Geek Out, Scope; Options, one setting per screen.
-- **MIDI**: three streams out over USB (performance on channel 1, bass on 2, the raw chord off by default), MIDI in
-  on the parts (USB and TRS), clock both ways.
-  **USB audio recording** (Melodee's, class compliant, no driver): the computer records the FM-1 through **ChoralRoot
-  In**: the master, the CHORD part and the BASS part as three stereo pairs, at 44.1 kHz, and (0.19, after SLOOP 2.5
-  and Felucca 1.1.5) at 48 kHz too when Options > USB Rate offers it; Options > USB Record switches it (Off:
-  the serial console instead) ([docs/USB-AUDIO.md](docs/USB-AUDIO.md)).
-- **On the computer**: the web installer with backup, restore and sounds as files, and the web device manager.
-- **New in 0.21** ([docs/releases/0.21.md](docs/releases/0.21.md)): the chorus no longer clicks while Depth turns,
-  and its page has a Width knob (KNOB 3) for the stereo spread ([docs/FX.md](docs/FX.md)).
-- **New in 0.20** ([docs/releases/0.20.md](docs/releases/0.20.md)): Options > Chord Names (the Orchid's names, the
-  default, or Standard lead-sheet names) and Options > 6th with 7th (the 6th an octave up over a seventh: a 13th)
-  ([docs/CHORD-NAMES.md](docs/CHORD-NAMES.md)).
-- **New in 0.19** ([docs/releases/0.19.md](docs/releases/0.19.md)): Options > Output, Clean (the default: a
-  look-ahead limiter as a safety, MASTER last) or Classic (0.18's output stage)
-  ([docs/AUDIO-QUALITY.md](docs/AUDIO-QUALITY.md)); the chorus in stereo; CZ-1 without its pops and 6 dB lower, level
-  with the other engines; USB recording at 48 kHz as an option; the keys play while the Options are open; OPT +
-  PRESETS / ALGORITHM pick the engine in the layers too.
-- **New in 0.16** ([docs/releases/0.16.md](docs/releases/0.16.md)): Options > Dual Core is Off by default
-  ([docs/DUALCORE.md](docs/DUALCORE.md)); the boot stub, so an interrupted update comes back in update mode
-  ([docs/BOOT-SAFETY.md](docs/BOOT-SAFETY.md)); the device manager auditions sounds on the unit.
+Thanks to SLOOP's authors and community, and **[Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (@kurogedelic) / Hügelton Instruments** for the synthesis, sequencing, editor and update foundations. Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments; original notices are retained. Other credits include ChanceTheMaker and keremimo (MIDI input/clock), @renebohne (note lights/Program Change), Versilian Studios and Sonic Pi (CC0 samples), Terminus (SIL OFL), Fukiai (MIT), msfa/Dexed (FM6, Apache-2.0), DaisySP/Rings (PHYS) and the credited PHASE/VOICE references.
 
-Open: the Orchid parity passes (M8: the secret-chord map, chromatic Key Mode quantization, Key Mode sevenths and the
-factory patterns, which ship as labelled fallbacks until they are captured from an Orchid).
-[PLAN.md](PLAN.md) is the plan and the interface specification; [design/](design/) holds the screen and
-panel mock-ups (made with the [ChoralRoot FM-1 designer](https://github.com/Quixotic7/MvaveFM1-Designer)).
-
-## Layout
-
-| Path | What |
-| --- | --- |
-| `docs/MANUAL.md` | the player's manual (its screenshots: `docs/manual/`) |
-| `PLAN.md` | the plan: controls, interaction grammar, screens, architecture, milestones |
-| `design/` | the mock-ups (`make_mockups.py` generates the JSON; the PNG sheets are its renders) |
-| `docs/` | the design documents (the editor, the engines, the looper, presets, settings, USB audio, boot safety) and `docs/releases/`, the release notes |
-| `docs/INTEGRATION.md` | how the engine, the screens and Felucca's sound are wired together |
-| `firmware/` | the firmware: Felucca's `hal/`, `src/` and `loader/`, plus ChoralRoot's `src/cr_*.c` |
-| `tools/` | Felucca's build, generators, installer; `tools/emu/` the Mac emulator |
-| `tools/emu/web/` | the emulator built for the browser (Emscripten) |
-| `tests/` | host tests; `tests/cr_*` are ChoralRoot's |
-| `web/` | the landing page (`web/site/`), the web installer and `make_site.py` (the GitHub Pages site) |
-| `.github/workflows/` | `release.yml` builds the package on a tag, `pages.yml` publishes the site |
-| `assets/`, `LICENSES/` | the UI font, icons, CC0 samples and their licences |
-
-## Building
-
-See [BUILDING.md](BUILDING.md). The host side (tests and the emulator) needs only Xcode's clang,
-Python 3 with Pillow and fontTools, and SDL2; the device build needs Docker and the JieLi toolchain
-(on Linux x86-64 the toolchain runs natively, without Docker).
-
-## Licence
-
-GPL-3.0-only ([LICENSE](LICENSE)). Built on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments, and its FM6
-from [Melodee](https://github.com/keremimo/melodee) by Kerem Kilic (Ellic Studio);
-the chord logic after the Telepathic Instruments Orchid. The firmware is all-synth (no samples in it: Felucca's
-SAMPLE engine and its CC0 instruments by Versilian Studios stay in the tree for Felucca builds); the package carries three JieLi AC79 SDK files under Apache-2.0. The bundled font, icons,
-ported DSP and SDK files keep their own licences ([LICENSES/](LICENSES/)); [LICENSING.md](LICENSING.md) has
-the whole list. Orchid, M-VAVE and FM-1 are trademarks of their owners.
-Some additional ideas and features that are implemented like a full keyboard mode were suggested by Rosen u/Creative_One919
+Code is **GPL-3.0-only**, with the existing msfa exception and asset notices: [LICENSE](LICENSE), [LICENSING.md](LICENSING.md). Distribute corresponding source with firmware. Extracted OP-1 tables and factory data retain **Teenage Engineering's original rights**; they are not CC0 or newly GPL-licensed assets, and extraction alone does not establish distribution permission. See [asset provenance and rights](assets/op1-cluster/README.md). ORBIT's graphics are original; no OP-1 logo or artwork is included. ORBIT is not affiliated with M-VAVE or teenage engineering. No warranty.

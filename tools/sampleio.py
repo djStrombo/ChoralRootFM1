@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Sample helpers shared by gen_samples.py (built-in sets), fm1_sample_upload.py
-(user slots) and the host test pitch.py. The web editor (web/editor.html) has a JS port of
+(user slots) and tests/pitch.py. The web editor (web/editor.html) has a JS port of
 read_any_wav / resample / ima_encode / user_slot that must give the same bytes
 (web/test_web.mjs checks it).
 
@@ -293,3 +293,4 @@ def user_slot(name, zones):
     nm = re.sub(r"[^\x20-\x7E]", "", name.upper())[:8].encode().ljust(8, b"\0")
     hdr = struct.pack("<IHBB8sII8x", 0x504D5346, 1, len(zs), 0, nm, len(data), zlib.crc32(data)) + zb
     return hdr.ljust(SLOT_HDR_LEN, b"\0"), bytes(data)
+

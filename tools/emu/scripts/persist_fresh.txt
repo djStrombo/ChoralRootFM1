@@ -1,4 +1,0 @@
-# test_persist.sh, run 3 (no --flash): a fresh flash, the default tempo.
-wait 500
-dump
-quit

@@ -15,7 +15,6 @@
  */
 #pragma once
 #include <stdint.h>
-#define FM1_IRQ_TARGET 1
 
 #define FM1_VEC ((volatile uint32_t *)0x01C7FE00u)
 #define FM1_ICFG(n) (*(volatile uint32_t *)(0x1EEF100u + 4u * ((n) >> 3)))
@@ -38,8 +37,6 @@ static inline uint32_t fm1_icfg(void) { uint32_t v; __asm__ volatile("%0 = icfg"
 static inline void fm1_icfg_set(uint32_t v) { __asm__ volatile("icfg = %0" ::"r"(v) : "memory"); }
 static inline void fm1_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
 static inline void fm1_irq_on(void) { __asm__ volatile("csync\n\tsti" ::: "memory"); }
-/* in an ISR's C body, before anything can nest in it: where the interrupt came in (the wrapper's rti goes back there) */
-static inline uint32_t fm1_reti(void) { uint32_t v; __asm__ volatile("%0 = reti" : "=r"(v)); return v; }
 
 #define FM1_CRASH_MAGIC 0x43525348u          /* "CRSH" */
 typedef struct {
@@ -68,10 +65,11 @@ static void fm1_irq_init(void)
     for (i = 0; i < 128u; i++)
         FM1_VEC[i] = (uint32_t)(uintptr_t)(fm1_fatal_stubs + 6u * i);
     FM1_ICFG(1) = (FM1_ICFG(1) & ~0xF0u) | 0xF0u;           /* exception: enable, prio 7 */
-    /* div0 trap off (cleared, in case a reset kept it from a build that armed it): this compiler treats a
-     * divide as harmless and runs a loop-invariant one ahead of the test that guards it (#61: fm4_convert at boot, after PR #111 by spinkham),
-     * and the build has some 300 divides by a register. Off, such a divide gives a value nobody uses; the cost:
-     * a real divide by 0 gives a wrong value instead of a crash report (the host tests trap on one) */
+    /* div0 trap off (cleared, in case a reset kept it from a build that armed it), as Felucca 1.0.3.1 (#61, after
+     * PR #111 by spinkham): this compiler treats a divide as harmless and may run a loop-invariant one ahead of the
+     * test that guards it, and the build has a few hundred divides by a register. Off, such a divide gives a value
+     * nobody uses; the cost: a real divide by 0 gives a wrong value instead of a crash report (the host tests run
+     * with -fsanitize=integer-divide-by-zero to catch one: tests/run_tests.sh) */
     FM1_EMU_CON &= ~(1u << 2);
     FM1_ETM_CON |= 1u;                                      /* branch trace for the report */
 }
@@ -119,3 +117,4 @@ void fm1_fault_c(uint32_t *f)
     for (;;)
         ;
 }
+

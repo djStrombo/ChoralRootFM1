@@ -34,13 +34,15 @@ static uint32_t pow2_q16(int32_t d16)
 }
 
 /* ---- user sample slots (loaded from the web editor into flash, see web/EDITOR_PROTOCOL.md)
- * 3 slots of 80 KiB at flash 0xA0000.. (Felucca data region), read through the plain XIP
+ * 4 slots of 80 KiB: 3 at flash 0xA0000.., USR4 at 0xE7000 (Felucca data regions), read through the plain XIP
  * window. Slot = header (magic, count, name, data length, CRC32) + up to 16 zones in the
  * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data. */
 #include "../hal/fm1_xip.h"   /* relative: hostsim includes this file too */
-#define SMP_USER_SLOTS 3
-#define SMP_USER_BASE 0xA0000u
+#define SMP_USER_SLOTS 4
+#define SMP_USER_BASE 0xA0000u                      /* USR1..USR3: 0xA0000..0xDBFFF */
+#define SMP_USER4_BASE 0xE7000u                     /* USR4 (2.4): the free flash after the FM6 bank, 0xE7000..0xFAFFF */
 #define SMP_USER_SIZE 0x14000u
+#define SMP_USER_OFF(k) ((k) < 3u ? SMP_USER_BASE + (k) * SMP_USER_SIZE : SMP_USER4_BASE)
 #define SMP_USER_DATA 512u
 #define SMP_USER_MAGIC 0x504D5346u                  /* "FSMP" */
 #define SMP_NALL (SMP_NSETS + SMP_USER_SLOTS)
@@ -54,10 +56,10 @@ typedef struct {
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
-static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
+static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3", "USR4"};
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
-#define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
+#define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_OFF((uint32_t)(k)))
 #endif
 static const uint8_t *smp_user_xip(uint32_t k) { return SMP_USER_XIP(k); }
 #if FELUCCA_SLICE
@@ -69,26 +71,35 @@ static uint32_t smp_user_gen;                       /* + 1 per slot scan (GRAIN:
 
 /* (re)read slot k from flash: valid header -> zones usable; call after boot and after an upload
  * (main loop: SLICE scans the slot's audio here) */
+/* a zone of a slot header usable (inside the slot's data, well formed) */
+static int smp_zone_ok(const smp_zone_t *z, uint32_t data_len)
+{
+    return z->off <= data_len && z->n <= 2u * SMP_USER_SIZE && z->off + (z->n + 1u) / 2u <= data_len &&
+           z->idx <= 88u && z->rate && z->rate <= 4u << 16 && z->ls <= z->le && z->le < z->n && z->lo <= z->hi;
+}
 static void smp_user_scan(uint32_t k)
 {
     const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(k);
+    static smp_zone_t zs[16];
     uint32_t i, base;
     smp_user_gen++;
-    usr_nz[k] = 0;
+    usr_nz[k] = 0;                                  /* (from here no new voice takes the slot) */
     slc_user_scan(k, 0);
     if (h->magic != SMP_USER_MAGIC || h->version != 1 || !h->nz || h->nz > 16u ||
         h->data_len > SMP_USER_SIZE - SMP_USER_DATA)
         return;
     base = (uint32_t)(uintptr_t)(smp_user_xip(k) + SMP_USER_DATA) - (uint32_t)(uintptr_t)SMP_DATA;
-    for (i = 0; i < h->nz; i++) {
-        smp_zone_t *z = &usr_zone[k][i];
-        *z = h->zone[i];
-        if (z->off > h->data_len || z->n > 2u * SMP_USER_SIZE || z->off + (z->n + 1u) / 2u > h->data_len ||
-            z->idx > 88u || !z->rate || z->rate > 4u << 16 || z->ls > z->le || z->le >= z->n || z->lo > z->hi)
+    for (i = 0; i < h->nz; i++) {                   /* checked in a copy: a voice still playing the slot */
+        zs[i] = h->zone[i];                         /* never reads a zone that is not valid */
+        if (!smp_zone_ok(&zs[i], h->data_len))
             return;                                 /* zone outside the data or malformed: slot unusable */
-        z->off += base;
+        zs[i].off += base;
     }
+    fm1_irq_off();
+    for (i = 0; i < h->nz; i++)
+        usr_zone[k][i] = zs[i];
     usr_nz[k] = h->nz;
+    fm1_irq_on();
     slc_user_scan(k, 1);
 }
 
@@ -125,27 +136,18 @@ static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 
 static void sample_note_on(track_t *t, voice_t *v)
 {
-    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu, width = 128u;
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu;
     if (si < SMP_NSETS) {
         const smp_set_t *set = &SMP_SETS[si];
-        for (i = 0; i < set->nz; i++) {
-            const smp_zone_t *z = &SMP_ZONES[set->z0 + i];
-            /* A single-note hat/cymbal takes precedence over a broad tom zone. */
-            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
+        for (i = 0; i < set->nz; i++)
+            if (v->note >= SMP_ZONES[set->z0 + i].lo && v->note <= SMP_ZONES[set->z0 + i].hi)
                 zi = set->z0 + i;
-                width = z->hi - z->lo;
-            }
-        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? set->z0 : zi);
     } else {                                        /* user slot: silent if empty */
         uint32_t k = si - SMP_NSETS;
-        for (i = 0; i < usr_nz[k]; i++) {
-            const smp_zone_t *z = &usr_zone[k][i];
-            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
+        for (i = 0; i < usr_nz[k]; i++)
+            if (v->note >= usr_zone[k][i].lo && v->note <= usr_zone[k][i].hi)
                 zi = 0x8000u | k << 5 | i;
-                width = z->hi - z->lo;
-            }
-        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? 0 : zi);
     }
     v->ph[0] = 0;
@@ -181,10 +183,6 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
             if (v->ph[0] >= z->n) {                   /* one-shot reached its end */
                 v->s[6] = 1;
                 v->s[3] = 0;
-                if (frac >= 65536u) {                /* past the last sample-to-zero interval */
-                    v->s[2] = 0;
-                    frac &= 65535u;
-                }
                 break;
             }
             v->s[3] = sample_next(z, v, p[P_E3]);
@@ -195,39 +193,17 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
         if (drv)
             s = softclip(s + (((s >> 2) * (drv * 150)) >> 11));   /* = s * drv * 600 / 32768, no overflow */
         v->s[7] += mulq15(s - v->s[7], lp);           /* gentle tone control (CUT) */
-        out[i] += voice_amp(v->s[7], m, i) << 1;
+        out[i] += mulq15(mulq15(v->s[7], amp_at(m, i)), VOICE_FS) << 1;
         if (v->s[6])
             break;
     }
     v->ph[1] = frac;
 }
 
-/* SMP_SETS index of "PERC", the GM-mapped kit (tools/gen_samples.py GM_KIT), -1 = none */
-static int32_t smp_perc_set(void)
-{
-    static int16_t set = -2;
-    uint32_t i;
-    if (set == -2) {
-        set = -1;
-        for (i = 0; i < SMP_NSETS; i++)
-            if (str_eq(SMP_SETS[i].name, "PERC"))
-                set = (int16_t)i;
-    }
-    return set;
-}
-
-/* the GM kit (PERC): the first C (key 7) is the kick (C2), no scale */
-static int32_t sample_keys(const track_t *t, uint32_t k)
-{
-    if (smp_perc_set() < 0 || (uint32_t)t->p[P_E0] % SMP_NALL != (uint32_t)smp_perc_set())
-        return -1;
-    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
-}
 
 static const engine_t ENG_SAMPLE = {
-    .name = "SAMPLE",
-    .page_title = {"SET", "TONE"},
-    .edit = {
+    "SAMPLE", {"SET", "TONE"},
+    {
         {"SET", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
         {"TUNE", F_SEMI, -24, 24, 0, 0, 0},
         {"BITS", F_INT, 0, 127, 0, 0, 0},
@@ -237,11 +213,6 @@ static const engine_t ENG_SAMPLE = {
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
-    .presets = SMP_PRESET_TABLE,
-    .npresets = SMP_NPRESETS,
-    .note_on = sample_note_on,
-    .render = sample_render,
-    .knob = {P_E0, P_E4, P_ATK, P_REL},
-    .sampled = 1,
-    .keys = sample_keys,
+    SMP_PRESET_TABLE, sizeof(SMP_PRESET_TABLE) / sizeof(SMP_PRESET_TABLE[0]), -1, sample_note_on, sample_render,
+    0xFFFF, {P_E0, P_E4, P_ATK, P_REL},
 };

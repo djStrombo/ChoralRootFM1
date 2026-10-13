@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM-1 hardware guards (after the SDK's
- * cpu/wl82/debug.c). Every violation raises the CPU exception (vector 1) and
+/* FM-1 hardware guards. Every violation raises the CPU exception (vector 1) and
  * ends in the fault report of fm1_irq.h, so install that first.
  *
  *   EMU stack limit   sp outside [_ustack_lo, _sstack_top] -> EMU_MSG bit 3.
@@ -15,10 +14,7 @@
  *                     attached; fm1_guard_unlock_top() reopens it.
  *   bus-invalid       fetch/read/write of unmapped space (NULL page, XIP
  *                     writes) -> DBG_MSG bits 4, 5, 16..21.
- *   PC limit          instruction fetch outside [0x02000120, _etext]: app.bin from its first byte, i.e.
- *                     the boot stub (firmware/stub, 0x02000120..0x02000FFF) and the app behind it; the
- *                     stub stays inside the window so that no reset path depends on the limits being
- *                     cleared before it runs
+ *   PC limit          instruction fetch outside [0x02000120, _etext]
  *                     -> DBG_MSG bit 12.
  */
 #pragma once
@@ -88,19 +84,6 @@ static void fm1_guard_enable(uint32_t which)
     fm1__dbg_lock();
 }
 
-/* the PC limits apply to the second core too, and it starts in the chip's ROM (found by Melodee's dual-core
- * work: DBG bit 10, c1_pc_limit_err_r; after fm1-x0x): open them while it starts (main.c cr_c1_boot), then
- * fm1_guard_enable(FM1_GUARD_PC) again */
-static void fm1_guard_pc_open(void)
-{
-    fm1__dbg_unlock();
-    FM1_PC_LIMIT0_L = 0u;
-    FM1_PC_LIMIT0_H = 0xFFFFFFFFu;
-    FM1_PC_LIMIT1_L = 0u;
-    FM1_PC_LIMIT1_H = 0xFFFFFFFFu;
-    fm1__dbg_lock();
-}
-
 /* write-protect 0x01C7FD50..0x01C7FFFF (boot info, mailbox, vectors):
  * call after the last fm1_irq_attach */
 static void fm1_guard_lock_top(void)
@@ -120,3 +103,4 @@ static void fm1_guard_unlock_top(void)
     FM1_C0_WR_LIMIT_EN &= ~4u;
     fm1__dbg_lock();
 }
+

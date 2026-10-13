@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build the SAMPLER engine's sample sets from WAV files into a C header.
+"""Build the SAMPLE engine's sample sets from WAV files into a C header.
 
-Samples are stored as IMA ADPCM (4 bit) at their native rate; loop points
-and roots come from the WAV 'smpl' chunk and the file name (C3 = MIDI 60
-naming), single-cycle waves get their root from rate / loop length.
-The ADPCM state at the loop start is stored so loops restart exactly.
+Samples are stored as IMA ADPCM (4 bit). Roots come from the file names, loops
+from the WAV 'smpl' chunk; the ADPCM state at the loop start is stored so loops
+restart exactly.
 
-Libraries:
-  cc0        assets/samples-cc0/ (tools/fetch_cc0.py, Versilian Studios, CC0):
-             PIANO, FLUTE, SAX (set 1, once TRANH, is an alias of PIANO)
-  generated  Felucca's own drum kit from tools/gen_waves.py (always built), with
-             CC0 hand percussion: one GM-mapped kit, PERC
-SAMPLE's factory presets end before PERC. Its initializer remains in the table
-for old projects; every sample set and SET / USR index stays in its original place.
-A retired set keeps its index as an alias: the original's name and zones (no data), and a
-preset equal to the original's (SMP_SET_ORIG), so old projects and presets play it and
-browsing skips it (params.c enum_orig, ui.c preset_orig).
+Sources:
+  assets/samples-cc0/   CC0 samples (CREDITS.txt there): PIANO (a grand), BASS, VIBES, HORNS, STRGS, FLUTE,
+                        SCRCH (tools/gen_builtin_hiphop.py makes them; FLUTE and the KIT:
+                        tools/fetch_cc0.py), and the acoustic drum kit of the GM map (KIT)
+  gen_waves.py          Felucca's own drum sounds (the Hügelton Sample Pack): only SLICE's BREAK, or a
+                        GM kit role the CC0 kit lacks
+One SAMPLE preset is written per set (SET_PRESETS: its name and sound), plus EXTRA_PRESETS.
+A file named ..._m<n>.wav has its root given (MIDI note n); else it comes from the note in the name.
 
-The SLICE engine's built-in BREAK (eng_slice.c) is rendered here too: one bar of 16ths
-arranged from the generated drums (no third-party loop), stored after every set (their
-offsets do not move) and NOT one of the SAMPLE sets (the SET list, its presets and the
-USR1-3 numbers stay as they were). Its slice table (decoder states on a 128-point grid,
-the hits as AUTO slices) is written with it: SLC_BREAK_INIT.
+With FELUCCA_SLICE=1 the SLICE engine's built-in BREAK (eng_slice.c) is rendered here
+too: one bar of 16ths arranged from Felucca's own generated drums, stored after every set
+and not one of the SAMPLE sets. Its slice table (decoder states on a 128-point grid, the hits as AUTO
+slices) is written with it: SLC_BREAK_INIT.
 
-The header is cached (build/gen_samples.cache) under a hash of every
-input file, this script, sampleio.py and the Python version, so unchanged
-inputs skip the slow pitch detection.
+The header is cached in build/gen_samples.cache under a hash of every input.
 """
 import hashlib
 import math
@@ -47,34 +41,64 @@ CACHE = SRC / "build" / "gen_samples.cache"
 CC0 = SRC / "assets" / "samples-cc0"
 TR = 22050                                   # stored sample rate
 
-# CC0 library: set -> kind ("oneshot" decaying, "sus" looped sustain, "kit" one sample per key)
-# Built-in sets (piano, flute, sax, GM percussion); the other slots of the 8 are for the user
-# (USR1-3, loaded from the web editor). TRANH was removed (66 KB of flash); its index 1 stays, an alias of PIANO ("alias": the set named)
-CC0_SETS = [("PIANO", "oneshot"), ("PIANO", "alias"), ("FLUTE", "sus"), ("SAX", "sus"), ("KIT", "kit")]
-MEASURED_TUNING = ()                         # sets whose recordings are not at A440 (was TRANH, ~+35 ct)
+# set -> kind ("oneshot" decaying, "sus" looped sustain, "piano" its attack then a steady loop that the
+# envelope fades, "kit" one sample per key).
+# The other slots are user sets loaded from the web editor.
+CC0_SETS = [("PIANO", "piano"), ("BASS", "oneshot"), ("VIBES", "oneshot"), ("HORNS", "oneshot"),
+            ("STRGS", "oneshot"), ("FLUTE", "sus"), ("SCRCH", "oneshot"), ("KIT", "kit")]
+MEASURED_TUNING = ()                         # sets recorded off A440 (measured near the named note)
+
+# the preset of each set: name, {SET (filled in), TUNE, BITS, LOOP (filled in), CUT, -, DRV, -}, env, mono,
+# sends (DIST, CHORUS, DELAY, REVERB), more (track parameter, value) pairs (preset_t.x)
+SET_PRESETS = {
+    "PIANO": ("GRAND PNO", [0, 0, 0, 0, 127, 0, 0, 0], (0, 110, 0, 58), 0, (0, 6, 8, 24), ()),
+    "BASS": ("UP BASS", [0, 0, 0, 0, 118, 0, 12, 0], (0, 127, 127, 26), 1, (0, 0, 0, 4), ()),
+    "VIBES": ("VIBES", [0, 0, 0, 0, 127, 0, 0, 0], (0, 127, 127, 72), 0, (0, 24, 22, 30), ("P_LD_AMP", 18, "P_LRATE", 86)),
+    "HORNS": ("HORN STAB", [0, 0, 0, 0, 120, 0, 20, 0], (0, 127, 127, 22), 0, (8, 0, 14, 18), ()),
+    "STRGS": ("STRING STB", [0, 0, 0, 0, 122, 0, 10, 0], (0, 127, 127, 26), 0, (0, 10, 12, 24), ()),
+    "FLUTE": ("LOFI FLUTE", [0, 0, 12, 0, 100, 0, 0, 0], (12, 80, 120, 60), 1, (0, 16, 26, 30), ("P_LD_PIT", 1, "P_LRATE", 89, "P_LFADE", 40)),
+    "SCRCH": ("SCRATCH", [0, 0, 0, 0, 127, 0, 8, 0], (0, 127, 127, 18), 0, (0, 0, 0, 0), ()),
+    "PERC": ("GM KIT", [0, 0, 0, 0, 127, 0, 0, 0], (0, 127, 127, 60), 0, (0, 0, 0, 6), ()),
+}
+# more presets on a set: (set, name, E[], env, mono, sends, more)
+EXTRA_PRESETS = [
+    ("PIANO", "DUSTY PNO", [0, 0, 34, 0, 96, 0, 24, 0], (0, 98, 0, 52), 0, (0, 8, 10, 22), ()),
+    ("PIANO", "LOFI KEYS", [0, 0, 45, 0, 78, 0, 30, 0], (0, 108, 0, 60), 0, (0, 30, 18, 34), ("P_LD_PIT", 1, "P_LRATE", 38)),
+    ("BASS", "DEEP BASS", [0, -12, 0, 0, 90, 0, 40, 0], (0, 127, 127, 30), 1, (0, 0, 0, 0), ()),
+]
 
 KIT_BASE = 53                     # F3, the lowest FM-1 key
 
 NOTE = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
-# GM drum map (General MIDI percussion key map): role -> [(lo, hi, root)].
+# GM drum map (General MIDI percussion, channel 10): role -> [(lo, hi, root)].
 # One sample can serve several GM notes; a range is pitched around its root.
 GM_KIT = {
     "kick": [(35, 36, 36)], "rim": [(37, 37, 37)], "snare": [(38, 38, 38), (40, 40, 40)],
     "clap": [(39, 39, 39)], "chh": [(42, 42, 42), (44, 44, 44)], "ohh": [(46, 46, 46)],
-    "tomlo": [(41, 45, 43)], "tomhi": [(47, 50, 48)], "tom": [(41, 50, 47)],
+    # (the toms skip the hi-hats' 42, 44, 46: a zone over them would win, the hats would play a tom)
+    "tomlo": [(41, 41, 43), (43, 43, 43), (45, 45, 43)], "tomhi": [(47, 48, 48), (50, 50, 48)],
+    "tom": [(41, 41, 47), (43, 43, 47), (45, 45, 47), (47, 48, 47), (50, 50, 47)],
     "crash": [(49, 49, 49), (52, 52, 52), (55, 55, 55), (57, 57, 57)],
     "ride": [(51, 51, 51), (53, 53, 53), (59, 59, 59)],
     "tamb": [(54, 54, 54)], "cowbell": [(56, 56, 56)], "conga": [(62, 64, 63)],
     "shaker": [(69, 70, 70), (82, 82, 82)], "claves": [(75, 75, 75)], "wood": [(76, 77, 76)],
 }
 GM_ROLE_WORDS = [("bassdrum", "kick"), ("kick", "kick"), ("snare", "snare"), ("hihat", "chh"), ("chat", "chh"),
-                 ("ohat", "ohh"), ("clap", "clap"), ("tom lo", "tomlo"), ("tom hi", "tomhi"), ("tom", "tom"),
+                 ("ohat", "ohh"), ("clap", "clap"), ("tom lo", "tomlo"), ("tom hi", "tomhi"), ("tomlo", "tomlo"),
+                 ("tomhi", "tomhi"), ("tom", "tom"),
                  ("rim", "rim"), ("cowbell", "cowbell"), ("tamb", "tamb"), ("shaker", "shaker"),
                  ("conga", "conga"), ("claves", "claves"), ("wood", "wood"), ("crash", "crash"), ("ride", "ride")]
-GM_KEEP = {"crash": 0.5, "ride": 0.5, "ohh": 0.5}  # the cymbals cut to 0.5 s (saves flash) ...
-GM_FADE = {"crash": 0.2, "ride": 0.2}            # ... with a long raised-cosine fade (s); the others 30 ms linear
-GM_CC0_ROLES = ("tamb", "shaker", "conga", "claves", "wood")   # the CC0 set is orchestral: hand percussion only
+GM_KEEP = {"crash": 0.6, "ride": 0.6, "ohh": 0.6}
+GM_RATE = {"chh": 32000, "ohh": 32000, "crash": 32000, "ride": 32000}   # the metal keeps its top (else TR)
+# an acoustic kit from the CC0 recordings (assets/samples-cc0/KIT: VCSL): the concert bass drum and the toms
+# get a shorter body (a kit's tuned-up, damped heads): their level falls as exp(-t / tau) after a hold
+GM_SHAPE = {"kick": (0.03, 0.13), "tomlo": (0.04, 0.22), "tomhi": (0.04, 0.2)}
+GM_FADE = {"crash": 0.16, "ride": 0.16}
+# the balance of the kit (dB under full scale): the kick and the snare up front, the metal and the hand
+# percussion further back, as the synthesised kits (tools/level_drumkits.py); the click's wood block stays
+GM_GAIN = {"chh": -9, "ohh": -9, "crash": -8, "ride": -9, "shaker": -8, "tamb": -6, "conga": -4, "cowbell": -4,
+           "claves": -4}
 
 # SLICE's BREAK: (step, GM role, gain) on a bar of 16ths; the open hat is choked by the next hat
 BREAK_BPM, BREAK_STEPS = 120, 16
@@ -87,18 +111,7 @@ SLC_GRID, SLC_AUTO = 128, 32                 # eng_slice.c slc_src_t
 ENV = {"wave":(5, 80, 100, 50), "kit": (0, 127, 127, 60), "multi": (0, 85, 0, 75),
        "oneshot": (0, 127, 127, 70), "sus": (12, 80, 120, 60)}
 
-# PIANO's notes cut to 0.75 s (saves flash), faded out over the last SET_FADE s
-SET_KEEP = {"PIANO": 0.75}
-SET_FADE = {"PIANO": 0.15}
-
 _wavs = {}
-
-
-def cos_fade(x, fade):
-    """fade the last `fade` samples of x out on a raised cosine (no corner at either end)"""
-    n = len(x)
-    for i in range(fade):
-        x[n - fade + i] *= 0.5 + 0.5 * math.cos(math.pi * (i + 1) / fade)
 
 
 def wav(path):
@@ -117,8 +130,8 @@ def name_note(name):
 def cc0_entries(setname, kind):
     """-> [(file name, int16 samples at TR, loop or None, root)]"""
     files = sorted((CC0 / setname).glob("*.wav"))
-    out = []
-    if kind != "kit":
+    out, conv = [], 1
+    if kind != "kit" and not all(re.search(r"_m\d+\.wav$", p.name) for p in files):
         # octave convention of this set (C4 = 60 or C3 = 60): YIN votes, the names give the notes
         votes = {1: 0, 2: 0}
         for p in files:
@@ -135,7 +148,10 @@ def cc0_entries(setname, kind):
         sr, x = wav(p)
         x = x[max(0, onset(x) - 16):]
         nn = name_note(p.name)
-        if kind == "kit":
+        given = re.search(r"_m(\d+)\.wav$", p.name)
+        if given and kind != "kit":
+            root = int(given.group(1))                  # (the file says it)
+        elif kind == "kit":
             root = KIT_BASE + k
         elif nn:
             root = (nn[0] + conv) * 12 + nn[1]
@@ -146,26 +162,49 @@ def cc0_entries(setname, kind):
         else:
             root = hz_to_midi(detect_hz(x, sr))
         x = resample(x, sr, TR)
-        keep = SET_KEEP.get(setname) or {"oneshot": 1.0, "sus": 0.95, "kit": 0.6}[kind]
+        keep = {"oneshot": 1.0, "sus": 0.95, "kit": 0.6, "piano": 1.0}[kind]
         x = x[:int(keep * TR)]
         n = len(x)
-        if kind == "sus":                            # crossfaded sustain loop in the steady part
+        if kind == "piano":                          # the attack, then a steady tone the envelope (DEC) fades:
+            ls, le, xf, a0 = int(0.55 * TR), n - 1, int(0.08 * TR), int(0.30 * TR)   # long notes in 1 s
+            w = int(0.02 * TR)
+            env = [max(1e-6, (sum(v * v for v in x[max(0, i - w):i + w]) / (2 * w)) ** 0.5) for i in range(0, n, w)]
+            ref = env[a0 // w]
+            x = [v * (ref / env[min(len(env) - 1, i // w)] if i >= a0 else 1.0) for i, v in enumerate(x)]
+            ls = best_loop_start(x, le, xf, int(0.45 * TR), int(0.65 * TR))   # (the tone in phase: no dip)
+            for i in range(xf):
+                a = i / xf
+                x[le - xf + i] = x[le - xf + i] * (1 - a) + x[ls - xf + i] * a
+            loop = (ls, le)
+        elif kind == "sus":                          # crossfaded sustain loop in the steady part
             ls, le, xf = int(0.40 * TR), n - 1, int(0.06 * TR)
             for i in range(xf):
                 a = i / xf
                 x[le - xf + i] = x[le - xf + i] * (1 - a) + x[ls - xf + i] * a
             loop = (ls, le)
         else:
-            if setname in SET_FADE:                  # a shortened set: a long raised-cosine fade-out
-                cos_fade(x, int(SET_FADE[setname] * TR))
-            else:
-                fade = int(0.08 * TR)
-                for i in range(fade):
-                    x[n - fade + i] *= 1 - i / fade
+            fade = int(0.08 * TR)
+            for i in range(fade):
+                x[n - fade + i] *= 1 - i / fade
             loop = None
         pk = peak(x)
         out.append((p.name, [int(v * 30000 / pk) for v in x], loop, root))
     return out
+
+
+def best_loop_start(x, le, xf, lo, hi):
+    """the loop start in [lo, hi) whose last xf samples look most like the loop end's (correlation, on
+    every 4th sample, every 2nd start: plain Python, no numpy): the crossfade then joins two copies of the
+    same wave, not two phases that cancel"""
+    tail = x[le - xf:le:4]
+    tn = sum(v * v for v in tail) ** 0.5 + 1e-9
+    best, bl = -2.0, (lo + hi) // 2
+    for ls in range(lo, hi, 2):
+        seg = x[ls - xf:ls:4]
+        c = sum(a * b for a, b in zip(seg, tail)) / ((sum(v * v for v in seg) ** 0.5 + 1e-9) * tn)
+        if c > best:
+            best, bl = c, ls
+    return bl
 
 
 def gm_role(name):
@@ -174,39 +213,41 @@ def gm_role(name):
 
 
 def gm_kit_sources(have_cc0):
-    """role -> wav path: Felucca's own synthesized drum kit (generated by
-    gen_waves.py), plus CC0 hand percussion for the roles it does not make"""
+    """role -> wav path: the CC0 acoustic kit (assets/samples-cc0/KIT); without it (and for SLICE's BREAK)
+    Felucca's own synthesized drums (gen_waves.py) for the roles it lacks"""
     src = {}
+    if have_cc0 and (CC0 / "KIT").exists():
+        for p in sorted((CC0 / "KIT").glob("*.wav")):
+            r = gm_role(p.name)
+            if r and r not in src:
+                src[r] = p
     for p in sorted(GENDIR.glob("D *.wav")):
         r = gm_role(p.stem)
         if r and r not in src:
             src[r] = p
-    if have_cc0 and (CC0 / "KIT").exists():
-        for p in sorted((CC0 / "KIT").glob("*.wav")):
-            r = gm_role(p.name)
-            if r in GM_CC0_ROLES and r not in src:
-                src[r] = p
     if "tomlo" in src or "tomhi" in src:
         src.pop("tom", None)
     return src
 
 
-def gm_kit_entry(role, path):
+def gm_kit_entry(role, path, rate=TR):
     sr, x = wav(path)
-    x = resample(x[max(0, onset(x) - 16):], sr, TR)
-    x = x[:int(GM_KEEP.get(role, 0.45) * TR)]
+    x = resample(x[max(0, onset(x) - 16):], sr, rate)
+    x = x[:int(GM_KEEP.get(role, 0.45) * rate)]
+    if role in GM_SHAPE:
+        hold, tau = GM_SHAPE[role]
+        h = int(hold * rate)
+        x = [v * (1.0 if i < h else math.exp(-(i - h) / (tau * rate))) for i, v in enumerate(x)]
     pk = peak(x)
     end = len(x)                                    # drop the silent tail
     while end > 64 and abs(x[end - 1]) < 0.004 * pk:
         end -= 1
     x = x[:end]
-    if role in GM_FADE:
-        cos_fade(x, min(len(x) // 2, int(GM_FADE[role] * TR)))
-    else:
-        fade = min(len(x) // 4, int(0.03 * TR))
-        for i in range(fade):
-            x[len(x) - fade + i] *= 1 - i / fade
-    return [int(v * 30000 / pk) for v in x]
+    fade = min(len(x) // 4, int(GM_FADE.get(role, 0.03) * rate))
+    for i in range(fade):
+        x[len(x) - fade + i] *= 1 - i / fade
+    g = 30000 / pk * 10 ** (GM_GAIN.get(role, 0) / 20) if path.parent.name == "KIT" else 30000 / pk
+    return [int(v * g) for v in x]
 
 
 def ima_states(data, positions):
@@ -252,7 +293,6 @@ def break_loop():
 class Builder:
     def __init__(self):
         self.zones, self.sets, self.blob, self.kinds = [], [], bytearray(), {}
-        self.alias = {}                         # set index -> the set index it aliases
         self.brk = None
 
     def slice_break(self):
@@ -290,29 +330,50 @@ class Builder:
         self.kinds[name] = kind
 
     def gm_kit(self, have_cc0):
-        """one GM-mapped kit: generated drums + CC0 hand percussion"""
+        """one GM-mapped kit: the CC0 acoustic kit"""
         z0 = len(self.zones)
         for role, path in gm_kit_sources(have_cc0).items():
-            smp = gm_kit_entry(role, path)
+            rate = GM_RATE.get(role, TR) if path.parent.name == "KIT" else TR
+            smp = gm_kit_entry(role, path, rate)
             off, st = self.add(smp, len(smp))
             for lo, hi, root in GM_KIT[role]:
-                self.zones.append(dict(off=off, n=len(smp), ls=len(smp), le=len(smp), looped=False, sr=TR,
+                self.zones.append(dict(off=off, n=len(smp), ls=len(smp), le=len(smp), looped=False, sr=rate,
                                        root16=root * 16, pred=st[0], idx=st[1], lo=lo, hi=hi))
         self.sets.append(("PERC", z0, len(self.zones) - z0))
         self.kinds["PERC"] = "kit"
 
-    def alias_set(self, name):
-        """a retired set's index: the zones of the earlier set `name` (no data of its own)"""
-        orig = next(i for i, (n, _, _) in enumerate(self.sets) if n == name)
-        self.alias[len(self.sets)] = orig
-        self.sets.append(self.sets[orig])
-
-    def cc0_set(self, name, kind):
+    def cc0_set(self, name: str, kind: str) -> None:
         entries = []
         for k, (_, s, loop, root) in enumerate(cc0_entries(name, kind)):
+            rate = TR
+            if name in ("FLUTE", "SCRCH"):
+                # Preserve existing roots/key zones and store small synthesized replacements.
+                flute = name == "FLUTE"
+                if flute:
+                    frequency = 440 * 2 ** ((root - 69) / 12)
+                    period = round(TR / frequency)
+                    rate = period * frequency
+                    n = period * math.ceil(4096 / period) + 1
+                    s = [int(18000 * (math.sin(math.tau * i / period) +
+                                     0.08 * math.sin(2 * math.tau * i / period) +
+                                     0.025 * math.sin(3 * math.tau * i / period))) for i in range(n)]
+                    loop = (period * 2, n - 1)
+                else:
+                    # Fixed-seed band noise and bidirectional chirp: identical one-shots on every build.
+                    s, phase, low, seed = [], 0.0, 0.0, k + 1
+                    for i in range(2048):
+                        t = i / 2047
+                        seed = (1664525 * seed + 1013904223) & 0xFFFFFFFF
+                        noise = (seed >> 16) / 32768 - 1
+                        low = 0.88 * low + 0.12 * noise
+                        phase += (250 + 2400 * abs(2 * t - 1)) / TR
+                        tone = 4 * abs(phase % 1 - 0.5) - 1
+                        envelope = math.sin(math.pi * t) ** 0.7 * (1 - 0.4 * t)
+                        s.append(int(18000 * envelope * (0.65 * tone + 0.35 * (noise - low))))
+                    loop = None
             ls, le = loop if loop else (len(s), len(s))
             off, st = self.add(s, ls)
-            entries.append(dict(off=off, n=len(s), ls=ls, le=le, looped=bool(loop), sr=TR,
+            entries.append(dict(off=off, n=len(s), ls=ls, le=le, looped=bool(loop), sr=rate,
                                 root16=int(round(root * 16)), pred=st[0], idx=st[1],
                                 key=KIT_BASE + k if kind == "kit" else None))
         self.add_set(name, kind, entries)
@@ -342,24 +403,27 @@ class Builder:
             L.append('    {"NONE", 0, 1},')
         L.append("};")
         L.append(f"#define SMP_NSETS {max(1, len(sets))}")
-        named = sets or [("NONE", 0, 0)]
-        perc = next((i for i, (name, _, _) in enumerate(named) if name == "PERC"), len(named))
-        L.append(f"#define SMP_NPRESETS {perc}")
-        L.append(f"#define SMP_PERC_PRESET {perc}")
-        L.append("/* PERC and later private SET initializers are retained, outside factory browsing. */")
         L.append("static const preset_t SMP_PRESET_TABLE[] = {")
+        named = sets or [("NONE", 0, 0)]
+
+        def preset(i, k, pname, e, env, mono, fx, more):
+            e = list(e)
+            e[0], e[3] = i, 0 if k == "kit" else 1
+            x = ", ".join(f"{more[j]} + 1, {more[j + 1]}" for j in range(0, len(more), 2))
+            return (f'    {{"{pname}", {{{", ".join(map(str, e))}}}, {{{", ".join(map(str, env))}}}, 0, {mono}, '
+                    f'FX({", ".join(map(str, fx))}){", .x = {" + x + "}" if x else ""}}},')
         for i, (name, _, _) in enumerate(named):
             k = self.kinds.get(name, "wave")
-            a, d, s_, r = ENV[k]
-            loop = 0 if k == "kit" else 1
-            pat = ", PAT(12)" if k == "kit" else ""     # a kit: engines.c PATTERNS[11] BEAT
-            si = self.alias.get(i, i)                   # an alias: the original's preset (hidden by its name)
-            L.append(f'    {{"{name}", {{{si}, 0, 0, {loop}, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0{pat}}},')
+            if name in SET_PRESETS:
+                L.append(preset(i, k, *SET_PRESETS[name]))
+            else:
+                a, d, s_, r = ENV[k]
+                L.append(f'    {{"{name}", {{{i}, 0, 0, {0 if k == "kit" else 1}, 127, 0, 0, 0}}, {{{a}, {d}, {s_}, {r}}}, 0, 0}},')
+        for setname, *rest in EXTRA_PRESETS:
+            i = next((j for j, (n, _, _) in enumerate(named) if n == setname), None)
+            if i is not None:
+                L.append(preset(i, self.kinds.get(setname, "wave"), *rest))
         L.append("};")
-        orig = [self.alias.get(i, i) for i in range(len(named))]
-        L.append("/* SET i plays SMP_SET_ORIG[i]: != i for a retired set kept as an alias (its preset i too) */")
-        L.append("static const uint8_t SMP_SET_ORIG[] = {" + ", ".join(map(str, orig)) + "};")
-        L.append(f"#define SMP_NALIAS {sum(1 for i, o in enumerate(orig) if o != i and i < perc)}   /* among the presets */")
         names = ", ".join(f'"{n}"' for n, _, _ in named)
         L.append("#define SMP_SET_NAMES_INIT " + names)
         L.append("static const char *const SMP_SET_NAMES[] = {" + names + "};")
@@ -387,18 +451,13 @@ class Builder:
         return f"samples: {len(self.sets)} sets, {len(self.zones)} zones, {len(self.blob)} B ADPCM{brk}"
 
 
-def slice_on():
-    """the SLICE engine is built (src/core.h: on unless FELUCCA_SLICE=0)"""
-    return os.environ.get("FELUCCA_SLICE", "1") != "0"
-
-
 def input_key(have_cc0):
     """hash of everything the header depends on"""
     h = hashlib.sha256()
     here = Path(__file__).resolve().parent
     for p in (here / "gen_samples.py", here / "sampleio.py"):
         h.update(p.read_bytes())
-    h.update(repr((sys.version_info[:2], have_cc0, slice_on())).encode())   # sum() differs across versions
+    h.update(repr((sys.version_info[:2], have_cc0, os.environ.get("FELUCCA_SLICE") == "1")).encode())   # sum() differs across versions
     files = sorted(GENDIR.glob("*.wav"))
     if have_cc0:
         files += sorted(CC0.glob("*/*.wav"))
@@ -425,12 +484,10 @@ def main(out):
     b = Builder()
     if have_cc0:
         for name, kind in CC0_SETS:
-            if kind == "alias":
-                b.alias_set(name)
-            elif kind != "kit":                     # the CC0 KIT feeds the GM kit
+            if kind != "kit":                       # the CC0 KIT feeds the GM kit
                 b.cc0_set(name, kind)
     b.gm_kit(have_cc0)
-    if slice_on():                                  # SLICE's BREAK: only when that engine is built
+    if os.environ.get("FELUCCA_SLICE") == "1":       # SLICE's BREAK: only when that engine is built
         b.slice_break()                             # last: the sets' offsets stay as they were
     text = b.header()
     Path(out).write_text(text)
@@ -441,3 +498,4 @@ def main(out):
 
 if __name__ == "__main__":
     main(sys.argv[1])
+

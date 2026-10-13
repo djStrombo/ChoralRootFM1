@@ -97,15 +97,21 @@ static int32_t pd_wave(const pd_t *b, uint32_t ph)
         else
             pd = 32768u + (((ph - b->peak) * b->k1) >> 16);
         break;
-    default: {                                               /* RESONANCE: windowed sine, rez = pitch of the core */
-        uint32_t rp = (ph + ((ph * b->rez) >> 16) * 7u) & 0xFFFFu, win;
+    case 5: {                                                /* 공진파: 톱니 창 */
+        uint32_t rp = (ph + ((ph * b->rez) >> 16) * 7u) & 0xFFFFu;
         int32_t core = (pd_cos(rp) * 5) >> 3;
-        if (b->w == 5)
-            win = 65535u - ph;                               /* saw window */
-        else if (b->w == 6)
-            win = ph < 32768u ? ph << 1 : (65535u - ph) << 1; /* triangle window */
-        else
-            win = ph < 16384u ? ph << 2 : ph > 49152u ? (65535u - ph) << 2 : 65535u;   /* trapezoid */
+        return (core * (int32_t)(65535u - ph)) >> 16;
+    }
+    case 6: {                                                /* 공진파: 삼각 창 */
+        uint32_t rp = (ph + ((ph * b->rez) >> 16) * 7u) & 0xFFFFu;
+        int32_t core = (pd_cos(rp) * 5) >> 3;
+        uint32_t win = ph < 32768u ? ph << 1 : (65535u - ph) << 1;
+        return (core * (int32_t)win) >> 16;
+    }
+    default: {                                               /* 공진파: 사다리꼴 창 */
+        uint32_t rp = (ph + ((ph * b->rez) >> 16) * 7u) & 0xFFFFu;
+        int32_t core = (pd_cos(rp) * 5) >> 3;
+        uint32_t win = ph < 16384u ? ph << 2 : ph > 49152u ? (65535u - ph) << 2 : 65535u;
         if (win > 65535u)
             win = 65535u;
         return (core * (int32_t)win) >> 16;                  /* |core| <= 20479: fits 32 bits */
@@ -130,8 +136,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     int32_t depth = (p[P_E2] << 8) + m->cutoff + mulq15(m->envq15, p[P_E3] * 256);
     uint32_t dcw, inc = m->inc, inc2;
     int32_t det = p[P_E4], line2 = det != 0 || p[P_E5], ring = p[P_E5], sub = p[P_E6] * 200;
-    int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;   /* (cents_inc(), written out: the host
-                                                                 * compiler makes the loop slower with it) */
+    int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2];
     int32_t tg0 = v->s[0], tg1 = v->s[1];                    /* WAVE / WAVE2 toggles */
     pd_t b1, b2;
@@ -161,7 +166,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
             ph2 += inc >> 1;
             s += mulq15(osc_sine(ph2), sub);
         }
-        out[i] += voice_amp(s, m, i) << 1;
+        out[i] += mulq15(mulq15(s, amp_at(m, i)), VOICE_FS) << 1;
     }
     v->ph[0] = ph0;
     v->ph[1] = ph1;
@@ -172,18 +177,20 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
 
 static const preset_t PHASE_PRESETS[] = {
     /* name, {WAVE, WAVE2, DCW, ENV, DTN, LINE, SUB, -}, {A D S R}, fenv, mono */
-    {"BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, 0, FX(0, 20, 20, 40), PAT(6)},
-    {"ORGAN", {3, 0, 40, 0, 0, 0, 0, 0}, {0, 127, 127, 30}, 0, 0, FX(0, 40, 0, 30), PAT(6)},
-    {"STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {40, 90, 100, 70}, 0, 0, FX(0, 50, 20, 60), PAT(5)},
-    {"RESO", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, 0, FX(0, 0, 40, 40), PAT(1)},
-    {"BELL", {6, 0, 80, 50, 0, 0, 0, 0}, {0, 95, 0, 90}, 0, 0, FX(0, 0, 30, 70), PAT(7)},
-    {"WIRE", {4, 7, 70, 40, 7, 0, 0, 0}, {10, 80, 80, 60}, 0, 0, FX(15, 30, 30, 40), PAT(4)},
+    {"CZ BASS", {5, 0, 36, 70, 0, 0, 72, 0}, {0, 64, 64, 22}, 0, 1, FX(5, 0, 0, 4), XP(P_GLIDE + 1, 36, P_TRANS + 1, -24)},
+    {"SOFT KEYS", {3, 0, 40, 70, 0, 0, 0, 0}, {0, 80, 20, 50}, 0, 0, FX(0, 35, 14, 28)},
+    {"CZ STRING", {0, 4, 50, 40, 12, 0, 0, 0}, {50, 90, 105, 75}, 0, 0, FX(0, 50, 20, 55)},
+    {"RESO PLUCK", {5, 0, 60, 60, 0, 0, 0, 0}, {0, 70, 30, 60}, 0, 0, FX(0, 0, 30, 30)},
+    {"CZ BRASS", {0, 0, 30, 90, 0, 0, 0, 0}, {8, 70, 90, 40}, 0, 0, FX(0, 20, 14, 26)},
+    /* SLOOP 2.5 */
+    {"CZ LEAD", {0, 0, 70, 60, 6, 0, 0, 0}, {2, 70, 110, 30}, 0, 1, FX(0, 10, 25, 25), XP(P_GLIDE + 1, 30)},
+    {"CZ PAD", {1, 4, 45, 30, 14, 0, 0, 0}, {70, 90, 115, 85}, 0, 0, FX(0, 50, 20, 60)},
+    {"CZ RESO", {6, 0, 80, 90, 0, 0, 0, 0}, {0, 70, 60, 40}, 0, 0, FX(0, 10, 25, 30)},
 };
 
 static const engine_t ENG_PHASE = {
-    .name = "PHASE",
-    .page_title = {"PHS", "LINE"},
-    .edit = {
+    "PHASE", {"PHS", "LINE"},
+    {
         {"WAVE", F_ENUM, 0, 7, 0, N_PD_WAVE, 0},
         {"WAVE2", F_ENUM, 0, 8, 0, N_PD_WAVE2, 0},
         {"DCW", F_PCT, 0, 127, 60, 0, 0},
@@ -193,9 +200,7 @@ static const engine_t ENG_PHASE = {
         {"SUB", F_PCT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
-    .presets = PHASE_PRESETS,
-    .npresets = NELEM(PHASE_PRESETS),
-    .note_on = phase_note_on,
-    .render = phase_render,
-    .knob = {P_E2, P_E3, P_E4, P_REL},
+    PHASE_PRESETS, sizeof(PHASE_PRESETS) / sizeof(PHASE_PRESETS[0]), 0, phase_note_on, phase_render,
+    0x05DF, {P_E2, P_E3, P_E4, P_REL},
 };
+

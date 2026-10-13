@@ -1,314 +1,163 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""The site (web/make_site.py) built from the device package, then every internal link walked.
-
-  python3 tests/site_test.py          (from the repo root, after ./build.sh; skips without build/choralroot.fwsc)
-
-Builds build/site from build/choralroot.fwsc as version "0.1-test" and checks: the landing page at the root with
-every placeholder filled, the installer with the identity and the version in its metadata and the library
-inlined, the packages and the licence files next to them, no webapp/editor written; then, for every .html in
-build/site, every href / src that is not http(s):, mailto:, data: or a bare #fragment resolves to a file (a
-folder needs index.html), every url() in a .css file too, and every #fragment points at an id on its page.
-
-The versions (web/releases.json): the other versions' packages come from CR_PACKAGES_DIR, else
-build/scratch/packages (python3 tools/fetch_packages.py fills it; the network is needed for that only). Each one
-found must be published with the listed sha256 and offered by the installer; each one missing is reported as
-"skipped" and must not be offered. make_site.py's refusals are run on made-up files (a wrong sha256, a missing
-version with --require-all, a version that is not listed). When build/choralroot.fwsc is itself a listed release
-(the build is reproducible) and every package is there, the site is also built as the Pages job builds it
-(--require-all, into build/scratch/site-release) and checked the same way.
-"""
+# Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+"""tools/make_site.py against a synthetic package (the one tests/install_test.py builds) and,
+when build/orbit.fwsc exists, against the real package. Run from the repo root:
+  python3 tests/site_test.py
+Writes only below a temporary directory; build/site is left to the generator's own runs."""
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
-import time
-from html.parser import HTMLParser
+import tempfile
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = ROOT / "build" / "choralroot.fwsc"
-OUT = ROOT / "build" / "site"
-VERSION = "0.1-test"
-RELEASES = json.loads((ROOT / "web" / "releases.json").read_text(encoding="utf-8"))
-PACKAGES = Path(os.environ.get("CR_PACKAGES_DIR") or ROOT / "build" / "scratch" / "packages")
-SCRATCH = ROOT / "build" / "scratch"
-NAME = f"choralroot-{VERSION}.fwsc"
+sys.path.insert(0, str(ROOT / "tools"))
+import fm1_install as I  # noqa: E402
+
+WEB = ROOT / "web"
+COPIED = ["installer.js", "fm1ota.js", "fm1pkg.js", "editor.html", "fukiai.ttf", "FUKIAI-LICENSE.txt",
+          "screens/envelope.svg", "screens/preset.svg", "screens/tape.svg"]
+TMP = Path(tempfile.mkdtemp(prefix="orbit-site-"))
 failed = 0
 
 
 def ok(cond, what):
     global failed
-    print(f"{what:<64} {'ok' if cond else 'FAIL'}")
+    print(f"{what:<72} {'ok' if cond else 'FAIL'}")
     failed += not cond
-    return cond
 
 
-class Page(HTMLParser):
-    """the links (href / src) and the ids of one page"""
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.links, self.ids = [], set()
-
-    def handle_starttag(self, tag, attrs):
-        for k, v in attrs:
-            if k == "id" and v:
-                self.ids.add(v)
-            elif k == "name" and tag == "a" and v:
-                self.ids.add(v)
-            elif k in ("href", "src") and v is not None:
-                self.links.append((tag, k, v.strip()))
-
-    handle_startendtag = handle_starttag
-
-
-def parse(path):
-    p = Page()
-    p.feed(path.read_text(encoding="utf-8", errors="replace"))
-    return p
-
-
-def external(url):
-    return re.match(r"(?i)(https?:|mailto:|data:|javascript:)", url) is not None or url.startswith("//")
+def package(product="FM-1_900", marker=True, size=0x2000, damage=False):
+    img = bytearray((i * 7) & 0xFF for i in range(size))
+    img[0x1800:0x1800 + 16] = I.LOADER_MARK if marker else bytes(16)
+    data = bytes(img[0x400:])
+    entry = bytearray(0x50)
+    entry[4:6] = I._crc16(data).to_bytes(2, "little")
+    entry[8:12] = (0x400).to_bytes(4, "little")
+    entry[12:16] = len(data).to_bytes(4, "little")
+    entry[0x40:0x49] = b"flash.bin"
+    lst = I._dec(bytes(entry))
+    hdr = bytearray(0x40)
+    hdr[4:8] = size.to_bytes(4, "little")
+    hdr[8:10] = (1).to_bytes(2, "little")
+    hdr[2:4] = I._crc16(lst).to_bytes(2, "little")
+    hdr[0:2] = I._crc16(bytes(hdr[2:0x40])).to_bytes(2, "little")
+    img[0:0x40] = I._dec(bytes(hdr))
+    img[0x40:0x90] = lst
+    if damage:
+        img[0x1000] ^= 1
+    raw = bytearray()
+    for i in range(I.BLOCKS):
+        marker_byte = (ord(product[i]) + i + 1) & 0xFF if i < len(product) else 0x7D
+        raw += img[i * I.KEEP:(i + 1) * I.KEEP] + bytes([marker_byte])
+    raw += img[I.BLOCKS * I.KEEP:]
+    return bytes(raw)
 
 
-def target(page, url):
-    """the file a relative url on page names (a folder: its index.html), and its fragment"""
-    parts = urlsplit(url)
-    frag = unquote(parts.fragment)
-    if not parts.path:
-        return page, frag
-    if parts.path.startswith("/"):
-        return None, frag                           # site-absolute paths break on a project Pages URL
-    t = (page.parent / unquote(parts.path)).resolve()
-    if parts.path.endswith("/") or t.is_dir():
-        t = t / "index.html"
-    return t, frag
-
-
-def walk(skip=(), OUT=OUT):
-    pages = sorted(OUT.rglob("*.html"))
-    ids = {}
-    bad, frags, count = [], [], 0
-
-    def page_ids(p):
-        if p not in ids:
-            ids[p] = parse(p).ids if p.suffix == ".html" and p.is_file() else set()
-        return ids[p]
-
-    for page in pages:
-        for tag, attr, url in parse(page).links:
-            if not url or external(url):
-                continue
-            count += 1
-            t, frag = target(page, url)
-            rel = page.relative_to(OUT).as_posix()
-            if t is not None and any(d in t.parents for d in skip):
-                continue
-            if t is None or not t.is_file() or OUT.resolve() not in t.parents:
-                bad.append(f"{rel}: <{tag} {attr}=\"{url}\">")
-                continue
-            if frag and t.suffix == ".html" and frag not in page_ids(t):
-                frags.append(f"{rel}: <{tag} {attr}=\"{url}\"> (no id \"{frag}\")")
-    for css in sorted(OUT.rglob("*.css")):
-        for url in re.findall(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)", css.read_text(encoding="utf-8")):
-            if external(url):
-                continue
-            count += 1
-            t, _ = target(css, url)
-            if t is None or not t.is_file():
-                bad.append(f"{css.relative_to(OUT).as_posix()}: url({url})")
-    return pages, count, bad, frags
+def run(*args):
+    result = subprocess.run([sys.executable, str(ROOT / "tools/make_site.py"), *args], cwd=ROOT,
+                            capture_output=True, text=True)
+    return result.returncode, result.stdout, result.stderr
 
 
 def sha(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def read_meta(page):
-    """the installer's metadata: one line, `const meta = {...};`"""
-    m = re.search(r"^const meta = (\{.*\});$", page, re.M)
-    try:
-        return json.loads(m.group(1).replace("<\\/", "</")) if m else None
-    except ValueError:
-        return None
+def tree(out):
+    return {path.relative_to(out).as_posix(): sha(path) for path in out.rglob("*") if path.is_file()}
 
 
-def make(args):
-    return subprocess.run([sys.executable, str(ROOT / "web" / "make_site.py"), *map(str, args)],
-                          capture_output=True, text=True)
+def generated_site():
+    raw = package()
+    pkg = TMP / "orbit.fwsc"
+    pkg.write_bytes(raw)
+    out = TMP / "site"
+    args = ("--package", str(pkg), "--version", "0.0.1", "--release-url", "https://example.test/releases/tag/v0.0.1")
+    rc, stdout, stderr = run(*args, "--out", str(out))
+    ok(rc == 0 and "FM-1_900" in stdout and not stderr, "generator exits 0 and names the package identity")
+    ok((out / "index.html").read_bytes() == (WEB / "installer.html").read_bytes(), "index.html is web/installer.html byte for byte")
+    ok(all((out / name).read_bytes() == (WEB / name).read_bytes() for name in COPIED), "installer modules, editor, font and native screenshots copied unchanged")
+    index = (out / "index.html").read_text()
+    ok('from "./installer.js"' in index and 'data-manifest="manifest.json"' in index, "index.html loads installer.js and names manifest.json")
+    screens = re.findall(r'<img[^>]+src="([^"]+)"', index)
+    ok(len(screens) == 3 and all((out / name).is_file() for name in screens),
+       "all three native screen references resolve in the generated site")
+    imports = {m for text in [(out / "installer.js").read_text()] for m in re.findall(r'from "\./([^"]+)"', text)}
+    ok(imports == {"fm1ota.js", "fm1pkg.js"} and all((out / name).exists() for name in imports), "installer.js imports resolve inside the site")
+    ok("fukiai.ttf" in (out / "editor.html").read_text(), "the copied editor still names the font shipped beside it")
+
+    manifest = json.loads((out / "manifest.json").read_text())
+    ok(manifest == {"name": "ORBIT", "version": "0.0.1", "product": "FM-1_900", "package": "firmware/orbit-0.0.1.fwsc",
+                    "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest(),
+                    "release_url": "https://example.test/releases/tag/v0.0.1"},
+       "manifest: version, identity, path, size and SHA-256 of the actual input")
+    ok((out / manifest["package"]).read_bytes() == raw, "the versioned package is the input byte for byte")
+    sums = {line[66:]: line[:64] for line in (out / "SHA256SUMS").read_text().splitlines()}
+    listed = tree(out)
+    del listed["SHA256SUMS"]
+    ok(sums == listed and all(line[64:66] == "  " for line in (out / "SHA256SUMS").read_text().splitlines()),
+       "SHA256SUMS lists every other file with its digest, in sha256sum format")
+
+    out2 = TMP / "site-again"
+    rc2, _, _ = run(*args, "--out", str(out2))
+    ok(rc2 == 0 and tree(out) == tree(out2), "two runs from the same inputs give identical files")
+    rc3, _, _ = run(*args, "--out", str(out))
+    ok(rc3 == 0 and tree(out) == tree(out2), "regenerating over a generated site replaces it cleanly")
+    return pkg
 
 
-def versions(out, meta, want, stdout):
-    """the multi-version layout: exactly the wanted packages under firmware/, each with its sha256, each offered by
-    the installer with a link that resolves, SHA256SUMS and firmware/index.html agreeing"""
-    fw = out / "firmware"
-    names = [f"choralroot-{w['version']}.fwsc" for w in want]
-    ok(sorted(p.name for p in fw.glob("*.fwsc")) == sorted(names), f"firmware/: {len(names)} package(s): {', '.join(w['version'] for w in want)}")
-    ok(all((fw / n).is_file() and sha(fw / n) == w["sha256"] for n, w in zip(names, want)), "firmware/: every package has its listed sha256")
-    rel = (meta or {}).get("releases", [])
-    ok([r.get("version") for r in rel] == [w["version"] for w in want] and all(r.get("sha256") == w["sha256"] for r, w in zip(rel, want)),
-       "installer: offers exactly these versions, in this order, with these sha256")
-    inst = out / "webapp" / "installer"
-    ok(all((inst / r["pkg"]).resolve() == (fw / n).resolve() and (inst / r["pkg"]).is_file() and r.get("size") == (fw / n).stat().st_size
-           for r, n in zip(rel, names)), "installer: every version's package link resolves to its file")
-    ok(all(r.get("bullets") and r.get("date") and r.get("tag") for r in rel if r["version"] != VERSION)
-       and all("going_back" in r for r in rel if r.get("tag") and r["version"] != RELEASES["releases"][0]["version"]),
-       "installer: every listed version carries its bullets, date and tag; the older ones their going-back note")
-    sums = (fw / "SHA256SUMS").read_text(encoding="utf-8").splitlines() if (fw / "SHA256SUMS").is_file() else []
-    ok(sums == [f"{w['sha256']}  {n}" for n, w in zip(names, want)], "firmware/SHA256SUMS lists them")
-    idx = (fw / "index.html").read_text(encoding="utf-8") if (fw / "index.html").is_file() else ""
-    ok(all(f'href="{n}"' in idx and w["sha256"] in idx for n, w in zip(names, want))
-       and all(f'/tree/{r["tag"]}"' in idx for r in rel if r.get("tag")) and all(f'href="{x}"' in idx for x in ("LICENSE", "LICENSING.md", "LICENSES/")),
-       "firmware/index.html: every package, its sha256, its source at its tag, the licences")
-    ok(not any(f"choralroot-{v}.fwsc" in idx or (fw / f"choralroot-{v}.fwsc").exists() for v in ("0.14", "0.15")), "firmware/: 0.14 and 0.15 are not published")
-    ok(stdout.count("skipped: ") == len(RELEASES["releases"]) - len([w for w in want if w["version"] != VERSION]),
-       "make_site.py: one \"skipped:\" line for each listed version without a package")
+def failures(good):
+    out = TMP / "bad"
+    cases = [
+        (TMP / "missing.fwsc", None, "0.0.1", "cannot read", "missing package"),
+        (TMP / "damaged.fwsc", package(damage=True), "0.0.1", "damaged package", "damaged package (a file's CRC)"),
+        (TMP / "plain.fwsc", package(marker=False), "0.0.1", "no Felucca update loader", "package without the loader"),
+        (TMP / "short.fwsc", b"\0" * 100, "0.0.1", "too short", "not a package"),
+        (TMP / "other.fwsc", package(product="FM1-900"), "0.0.1", "not an FM-1 package", "package without a valid identity"),
+        (good, None, "v0.0.1", "version", "version with a leading v"),
+        (good, None, "0.1", "version", "two-part version"),
+    ]
+    for path, content, version, message, label in cases:
+        if content is not None:
+            path.write_bytes(content)
+        rc, _, err = run("--package", str(path), "--version", version, "--out", str(out))
+        ok(rc == 2 and message in err and not out.exists(), f"{label}: exit 2, nothing written")
+    rc, _, err = run("--package", str(good), "--version", "0.0.1", "--out", str(out), "--release-url", "http://example.test")
+    ok(rc == 2 and "https" in err and not out.exists(), "release URL that is not https: exit 2")
+    occupied = TMP / "occupied"
+    occupied.mkdir()
+    (occupied / "keep.txt").write_text("mine")
+    rc, _, err = run("--package", str(good), "--version", "0.0.1", "--out", str(occupied))
+    ok(rc == 2 and "refusing" in err and (occupied / "keep.txt").read_text() == "mine", "an unrelated output directory is never deleted")
 
 
-def refusals():
-    """make_site.py must stop before it writes anything: a package that is not the listed one, a missing version
-    or an unlisted current version when everything is required"""
-    listed = RELEASES["releases"]
-    neg, out = SCRATCH / "site-neg-packages", SCRATCH / "site-neg"
-    for d in (neg, out):                            # (made by this test, in build/scratch)
-        if d.exists():
-            shutil.rmtree(d)
-    neg.mkdir(parents=True)
-    victim = listed[-1]["version"]
-    bad = bytearray(PKG.read_bytes())
-    bad[-1] ^= 0xFF
-    (neg / f"choralroot-{victim}.fwsc").write_bytes(bad)
-    r = make([PKG, VERSION, out, "--packages", neg])
-    ok(r.returncode != 0 and f"version {victim}" in r.stderr and "refused" in r.stderr and not out.exists(),
-       f"make_site.py refuses a choralroot-{victim}.fwsc whose sha256 is not the listed one")
-    (neg / f"choralroot-{victim}.fwsc").unlink()
-    r = make([PKG, VERSION, out, "--packages", neg, "--require-all"])
-    ok(r.returncode != 0 and "not in web/releases.json" in r.stderr and not out.exists(),
-       "make_site.py --require-all refuses a version that is not in releases.json")
-    if len(listed) > 1 and sha(PKG) == listed[0]["sha256"]:
-        r = make([PKG, listed[0]["version"], out, "--packages", neg, "--require-all"])
-        ok(r.returncode != 0 and f"version {listed[1]['version']}: choralroot-{listed[1]['version']}.fwsc is missing" in r.stderr and not out.exists(),
-           f"make_site.py --require-all refuses a build without choralroot-{listed[1]['version']}.fwsc, naming it")
-        r = make([PKG, listed[1]["version"], out, "--packages", neg])
-        ok(r.returncode != 0 and "is not the released" in r.stderr and not out.exists(),
-           "make_site.py refuses a current package whose sha256 is not its version's")
-    else:
-        print("skipped: the --require-all refusal of a missing older package (build/choralroot.fwsc is not the newest listed release)")
-    foreign = bytearray(PKG.read_bytes())
-    foreign[0x2F] = (ord("X") + 1) & 0xFF            # the identity's first marker byte: XM-1_920
-    (neg / "foreign.fwsc").write_bytes(foreign)
-    r = make([neg / "foreign.fwsc", VERSION, out, "--packages", neg])
-    ok(r.returncode != 0 and "FM-1_9xx" in r.stderr and not out.exists(), "make_site.py refuses a package whose identity is not FM-1_9xx")
-
-
-def release_site(cur):
-    """the site as the Pages job builds it: the newest release as the current version, every listed version required"""
-    out = SCRATCH / "site-release"
-    r = make([PKG, cur["version"], out, "--packages", PACKAGES, "--require-all"])
-    if not ok(r.returncode == 0, f"make_site.py --require-all builds the site for {cur['version']} (build/scratch/site-release)"):
-        print(r.stdout + r.stderr)
+def real_package():
+    built = ROOT / "build/orbit.fwsc"
+    if not built.exists():
+        print(f"{'build/orbit.fwsc absent: the real-package site was not generated':<72} SKIP")
         return
-    page = (out / "webapp" / "installer" / "index.html").read_text(encoding="utf-8")
-    versions(out, read_meta(page), RELEASES["releases"], r.stdout)
-    html = (out / "index.html").read_text(encoding="utf-8")
-    ok(f'New in {cur["version"]}' in html and all(escape_html(b) in html for b in cur["bullets"]) and 'href="webapp/installer/"' in html,
-       f"index.html: \"New in {cur['version']}\" with its bullets, and the button to the installer")
-    ok(all(f'href="firmware/choralroot-{x["version"]}.fwsc"' in html for x in RELEASES["releases"]), "index.html: a download link for every version")
-    emu = (ROOT / "build" / "emu-web" / "index.html").is_file()
-    pages, count, bad, frags = walk(() if emu else ((out / "emu").resolve(),), out)
-    for b in bad + frags:
-        print(f"  missing: {b}")
-    ok(not bad and not frags, f"links (the release site): {count} internal href / src / url() in {len(pages)} pages resolve")
+    out = TMP / "release"
+    rc, stdout, stderr = run("--package", str(built), "--version", "0.6.0", "--out", str(out),
+                             "--release-url", "https://github.com/dspaudio/orbit/releases/tag/v0.6.0")
+    manifest = json.loads((out / "manifest.json").read_text()) if rc == 0 else {}
+    ok(rc == 0 and manifest.get("sha256") == sha(built) and manifest.get("size") == built.stat().st_size
+       and manifest.get("product") == "FM-1_900" and (out / "firmware/orbit-0.6.0.fwsc").read_bytes() == built.read_bytes(),
+       f"build/orbit.fwsc site: {manifest.get('product')} {manifest.get('size')} bytes sha256 {manifest.get('sha256', '')[:16]}...")
 
 
-def escape_html(s):
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def main():
-    if not PKG.is_file():
-        print(f"skip: {PKG.relative_to(ROOT)} missing (run ./build.sh first)")
-        sys.exit(0)
-    editor = OUT / "webapp" / "editor"
-    had_editor = editor.exists()
-    t0 = time.time() - 1
-    r = make([PKG, VERSION, OUT, "--packages", PACKAGES])
-    if not ok(r.returncode == 0, "make_site.py builds build/site"):
-        print(r.stdout + r.stderr)
-        return 1
-
-    index = OUT / "index.html"
-    html = index.read_text(encoding="utf-8") if index.is_file() else ""
-    ok(index.is_file(), "index.html (the landing page) at the root")
-    ok("{{" not in html and "}}" not in html, "index.html: every placeholder filled")
-    ok(NAME in html and f'href="firmware/{NAME}"' in html, f"index.html: links the package {NAME}")
-    ok('href="webapp/installer/"' in html, "index.html: links webapp/installer/")
-    ok("http-equiv=\"refresh\"" not in html, "index.html: no redirect")
-    ok((OUT / "site.css").is_file() and (OUT / "InterTight.woff2").is_file() and (OUT / "OFL.txt").is_file(),
-       "site.css, InterTight.woff2, OFL.txt at the root")
-
-    inst = OUT / "webapp" / "installer" / "index.html"
-    ih = inst.read_text(encoding="utf-8") if inst.is_file() else ""
-    ok(inst.is_file(), "webapp/installer/index.html written")
-    ok("FM-1_920" in ih, "installer: identity FM-1_920")
-    ok("/*LIB*/" not in ih and "/*META*/" not in ih, "installer: /*LIB*/ and /*META*/ replaced")
-    meta = read_meta(ih)
-    ok(meta is not None and meta.get("version") == VERSION and meta.get("product") == "FM-1_920"
-       and meta.get("pkg") == f"../../firmware/{NAME}", "installer: META JSON (version, product, pkg)")
-
-    fw = OUT / "firmware" / NAME
-    ok(fw.is_file() and fw.stat().st_size == PKG.stat().st_size, f"firmware/{NAME} ({PKG.stat().st_size} B)")
-    ok(all((OUT / "firmware" / f).is_file() for f in ("LICENSE", "LICENSING.md", "LICENSES/index.html")),
-       "firmware/: LICENSE, LICENSING.md, LICENSES/index.html")
-    ok('id="new"' in html and "a local build" in html, "index.html: the version block (a local build: no notes)")
-    here = [r for r in RELEASES["releases"] if (PACKAGES / f"choralroot-{r['version']}.fwsc").is_file()]
-    for x in RELEASES["releases"]:
-        if x not in here:
-            print(f"skipped: choralroot-{x['version']}.fwsc not in {PACKAGES}: version {x['version']} is not "
-                  "published by this local build (python3 tools/fetch_packages.py; the Pages job has them all)")
-    versions(OUT, meta, [{"version": VERSION, "sha256": sha(PKG)}] + here, r.stdout)
-    refusals()
-    cur = next((r for r in RELEASES["releases"] if r["sha256"] == sha(PKG)), None)
-    if cur is not None and cur is RELEASES["releases"][0] and len(here) == len(RELEASES["releases"]):
-        release_site(cur)
+try:
+    good = generated_site()
+    failures(good)
+    real_package()
+finally:
+    if not failed:
+        shutil.rmtree(TMP, ignore_errors=True)
     else:
-        print("skipped: the site as the Pages job builds it (--require-all): build/choralroot.fwsc is not the newest "
-              "listed release, or a listed package is missing")
-    if had_editor:
-        new = [p for p in editor.rglob("*") if p.is_file() and p.stat().st_mtime >= t0]
-        ok(not new, "webapp/editor: an old one left as it was, nothing written")
-    else:
-        ok(not editor.exists(), "webapp/editor: not written")
-
-    emu_src = ROOT / "build" / "emu-web"
-    if (emu_src / "index.html").is_file():
-        ok((OUT / "emu" / "index.html").is_file() and (OUT / "emu" / "choralroot.wasm").is_file(),
-           "emu/: index.html and choralroot.wasm copied")
-        ok('href="emu/"' in html, "index.html: links emu/ (Try it in the browser)")
-    else:
-        print(f"skip: {emu_src.relative_to(ROOT)} missing: emu/ and the links to it not checked "
-              "(sh tools/emu/web/build_web.sh)")
-    skip = () if (emu_src / "index.html").is_file() else ((OUT / "emu").resolve(),)
-    pages, count, bad, frags = walk(skip)
-    for b in bad:
-        print(f"  missing: {b}")
-    ok(not bad, f"links: {count} internal href / src / url() in {len(pages)} pages resolve")
-    for f in frags:
-        print(f"  fragment: {f}")
-    ok(not frags, "links: every #fragment names an id on its page")
-    landing = parse(index) if index.is_file() else Page()
-    ok("playing" in landing.ids and any(u == "#playing" for _, _, u in landing.links),
-       "index.html: Manual -> #playing")
-    return 1 if failed else 0
-
-
-if __name__ == "__main__":
-    rc = main()
-    print("site: ALL OK" if rc == 0 and not failed else f"site: {failed} FAILED")
-    sys.exit(rc)
+        print(f"kept {TMP}")
+print(f"{failed} failed" if failed else "site tests passed")
+sys.exit(1 if failed else 0)

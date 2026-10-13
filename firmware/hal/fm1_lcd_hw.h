@@ -136,3 +136,11 @@ FM1_INLINE void fm1_padled_done(void)
     FM1_LCD_SPI_BAUD = fm1_lcd_cur_baud;
 }
 #endif
+
+FM1_INLINE void fm1_lcd_backlight(uint32_t on) {
+#if !BOARD_SMK37
+    if (on) FM1_LCD_PA_OUT &= ~FM1_LCD_BL; else FM1_LCD_PA_OUT |= FM1_LCD_BL;
+#else
+    (void)on;
+#endif
+}

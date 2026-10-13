@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
-// The FM-1 USB-MIDI update protocol over WebMIDI (after tools/fm1_install.py).
-// Step 1: the running firmware (official
-// or Felucca) reads parts of the package and stages the update loader. Step 2:
-// the loader reads the whole image and writes it. Both steps are "the device
-// asks, we answer": cmd 0x30 read requests on the logical image.
+// The FM-1 USB-MIDI update protocol (M-UPGRADE compatible) over WebMIDI.
+// Step 1: the running firmware reads parts of the package and stages the update
+// loader. Step 2: the loader reads the whole image and writes it. In both steps
+// the device sends cmd 0x30 read requests on the logical image and we answer.
 
 const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 const MAXDATA = 512;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const IS_OTA = (id) => /^ota-/i.test(id.model);
+// the update loader of SLOOP / Felucca packages ("ota-FM-1_9XX"). A device left in the update mode of another
+// firmware (the stock updater's loader) is never written: its loader may lay the image out differently.
+export const OUR_LOADER = (id) => /^ota-FM-1_9\d\d$/i.test(id.text);
 
 // errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
-// mismatch (detail: the identity the device reports), badreq
+// mismatch (detail: the identity the device reports), badreq, foreign (detail: the loader's identity)
 function fail(code, msg, detail = "") { const e = new Error(msg); e.code = code; e.detail = detail; return e; }
 
 export function pack7(data) {
@@ -64,40 +66,6 @@ function parseIdentity(pkt) {
   const m = /^([^_]+)_(\d+)$/.exec(txt);
   return m ? { text: txt, model: m[1], version: parseInt(m[2], 10) } : null;
 }
-
-// ---- which firmware runs: may ChoralRoot be installed over it? (docs/INSTALL-COMPAT.md; tools/fm1_install.py
-// classify_firmware is the same table). identity: the handshake text ("FM-1_015", "FM-1_910"); info: the version the
-// backup protocol's INFO answers ("FELUCCA v1.0", "MELODEE v0.11.1", "ChoralRoot 0.12"), null when it does not answer.
-// -> { verdict: "allow" | "refuse" | "loader", kind, name }. The 9xx identities are shared by every Felucca-based
-// firmware (FM-1_9XY from the release number: Felucca 0.9-beta FM-1_909, Felucca 1.0 FM-1_910, Sloop 2.0 FM-1_920 =
-// ChoralRoot's), so they are told apart by the INFO text only.
-export const RECOVERY_URL = "https://github.com/Quixotic7/MvaveFM1Unbricker";
-export function classifyFirmware(identity, info) {
-  const m = /^(ota-)?([^_]+)_(\d+)$/i.exec(identity || "");
-  const v = (info || "").trim();
-  if (!m) return { verdict: "refuse", kind: "unknown", name: `an unknown firmware (${identity || "no identity"})` };
-  if (m[1]) return { verdict: "loader", kind: "loader", name: identity };            // update mode: resume
-  const num = parseInt(m[3], 10);
-  if (m[2] !== "FM-1") return { verdict: "refuse", kind: "unknown", name: identity };
-  if (num >= 1 && num < 100) return { verdict: "allow", kind: "stock", name: `the official M-VAVE firmware (${identity})` };
-  if (num === 0) return { verdict: "refuse", kind: "sloop", name: "Sloop's rescue mode (FM-1_000)" };
-  if (num < 900) return { verdict: "refuse", kind: "unknown", name: `an unknown firmware (${identity})` };
-  if (/^choralroot\b/i.test(v)) return { verdict: "allow", kind: "choralroot", name: v };
-  if (/^melodee\b/i.test(v)) return { verdict: "allow", kind: "melodee", name: `Melodee (${v.slice(8)})` };
-  if (/sloop/i.test(v)) return { verdict: "refuse", kind: "sloop", name: "Sloop" };
-  const f = /^felucca\s+(v)?(\d+)\.(\d+)(\S*)$/i.exec(v);
-  // Felucca 1.0 and later: "v1.0", "v1.0.1", "v1.1-rc1" (build.py "v" + release); the 0.x betas: "0.9-BETA", "0.5 BETA"
-  if (f && parseInt(f[2], 10) >= 1 && !/beta/i.test(v) && (f[1] || !f[4]))
-    return { verdict: "allow", kind: "felucca", name: `Felucca ${f[1] || "v"}${f[2]}.${f[3]}${f[4]}` };
-  if (/^felucca\b/i.test(v)) return { verdict: "refuse", kind: "felucca-beta", name: `a Felucca beta or a firmware based on one (${v})` };
-  return { verdict: "refuse", kind: "unknown", name: v ? `an unknown firmware (${identity}, ${v})` : `an unknown Felucca-based firmware (${identity})` };
-}
-export function refusalText(name) {
-  return `Installing over ${name} is not supported: ${REFUSE_REASON} ` +
-    `Return to the official V15 firmware with the installer you used for ${name} first, then install ChoralRoot. ` +
-    `If an FM-1 is already dark (black screen, a "WL82 UBOOT1.00" USB disk): ${RECOVERY_URL}`;
-}
-export const REFUSE_REASON = "An install over it has left an FM-1 that no longer starts, and the data it leaves in the flash is not known to be safe for ChoralRoot.";
 
 // one MIDI in/out pair with a SysEx queue
 class Link {
@@ -153,8 +121,8 @@ export class Updater {
     const outs = [...this.access.outputs.values()];
     for (const input of this.access.inputs.values()) {
       if (input.state === "disconnected") continue;
-      if (!/fm-1|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
-      const output = outs.find((o) => o.name === input.name && o.state !== "disconnected");
+      if (!/fm-1|felucca|sloop|clipper|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
+      const output = outs.find((o) => o.name === input.name) || (outs.length === 1 ? outs[0] : null);
       if (!output) continue;
       try { await input.open(); await output.open(); } catch (_) { continue; }
       const link = new Link(input, output);
@@ -219,7 +187,7 @@ export class Updater {
     if (!s1.finished) throw fail(s1.lost ? "lost" : "stopped", `the device ${s1.lost ? "was disconnected" : "stopped"} after ${s1.served} requests: nothing was written`);
     step("loader");
     await sleep(3000);
-    const ota = await this.waitFor((id) => id.model === "ota-" + model, 30000);
+    const ota = await this.waitFor(IS_OTA, 30000);
     if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
     const s2 = await this.write(ota, image, step);
     if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Replug and press Install again to resume.`);
@@ -242,23 +210,29 @@ export class Updater {
     return s2;
   }
 
-  // resume: the device is already in update mode (loader) -> true when the write finished
-  async resume(image, onStep, product = null) {
-    const model = product && product.split("_")[0];
-    const ota = await this.find((id) => model ? id.model === "ota-" + model : IS_OTA(id));
+  // resume: the device is already in update mode (loader) -> true when the write finished. Only SLOOP's
+  // own loader is resumed, except for the return to the official firmware (opts.product: the official
+  // package, its identity checked once the FM-1 is back, after Felucca 1.0): that one is the official
+  // loader's own image, as M-UPGRADE would write it
+  async resume(image, onStep, opts = {}) {
+    const ota = await this.find(IS_OTA);
     if (!ota) return false;
+    if (!OUR_LOADER(ota.id) && !opts.product) {
+      ota.link.close();
+      throw fail("foreign", `the FM-1 is in the update mode of another firmware (${ota.id.text}): finish that update with its own updater`, ota.id.text);
+    }
     const step = onStep || (() => {});
-    const result = await this.write(ota, image, step);
-    if (!result.finished) return false;
-    if (product) {
+    if (!(await this.write(ota, image, step)).finished) return false;
+    if (opts.product) {
       step("reboot");
       await sleep(3000);
-      const back = await this.waitFor((id) => id.model === model, 40000);
-      if (!back) throw fail("noreturn", "The FM-1 did not return after resuming the write.");
+      const back = await this.waitFor((id) => !IS_OTA(id), 40000);
+      if (!back) throw fail("noreturn", "the FM-1 did not come back after the write: power-cycle it");
       back.link.close();
-      if (back.id.text !== product) throw fail("mismatch", "The FM-1 reports a different firmware after resuming.", back.id.text);
+      if (back.id.text !== opts.product) throw fail("mismatch", `written, but the FM-1 reports ${back.id.text}`, back.id.text);
       step("done", back.id.text);
     }
     return true;
   }
 }
+
