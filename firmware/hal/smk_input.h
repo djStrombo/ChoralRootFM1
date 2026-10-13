@@ -144,8 +144,22 @@ static volatile uint16_t smk_extq[SMK_EXTQ];
 static volatile uint8_t smk_extq_w, smk_extq_r;
 
 static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
-static uint8_t fm1_led_dim[3][FM1_NCOL];
-static uint8_t fm1_led_dim_mask[3];
+static uint8_t fm1_led_dim[FM1_NCOL];
+static uint8_t fm1_led_dim2[FM1_NCOL];
+static uint8_t fm1_led_faint[FM1_NCOL];
+
+#define FM1_GAP_BINS 8u
+static volatile struct {
+    uint32_t last, gap_max, gap_hist[FM1_GAP_BINS];
+    uint32_t on[FM1_NCOL], on_max[FM1_NCOL];
+    uint32_t cost_sum, cost_max, ticks;
+    uint32_t enc_moves[FM1_NENC], enc_lost[FM1_NENC];
+    uint32_t press_n, press_sum, press_max;
+    uint32_t kb_n, kb_sum, kb_max, dac_sum, dac_max;
+    uint32_t dim_n, dim_sum;
+    uint32_t dim2_n, dim2_sum;
+    uint32_t faint_n, faint_sum;
+} fm1_in_stat;
 static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
     { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1, -1, -1, -1, -1, -1},
