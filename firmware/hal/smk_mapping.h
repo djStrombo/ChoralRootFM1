@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Generated automatically by SMK-37 Control Remapper */
-/* Target: SMK-37 ELITE | Engine: MELODEE */
+/* Target: SMK-37 ELITE | Engine: CHORALROOT */
 #pragma once
 #include <stdint.h>
 
@@ -30,9 +30,9 @@
 #define ACT_OCTDN      0   /* B_OCTDN: Cursor < / Bar- / Bank A+B / Undo */
 #define ACT_OCTUP      1   /* B_OCTUP: Cursor > / Bar+ / Bank C+D / Redo */
 #define ACT_FX         2   /* B_FX: FX / Punch-in */
-#define ACT_SCALE      3   /* B_SCL: Scale Page / Quantize Mode */
+#define ACT_SCALE      3   /* B_SEL: Select / Scale Page / Quantize */
 #define ACT_ENV        4   /* B_ENV: Envelope / Tap Tempo */
-#define ACT_LFO        5   /* B_LFO: LFO / Step Erase (Knob Bank) */
+#define ACT_LFO        5   /* B_LFO: LFO Parameters */
 #define ACT_EDIT       6   /* B_EDIT: Edit Sound / PARA */
 #define ACT_GLO        7   /* B_GLO: Global / Mutes / GLOBE */
 #define ACT_HOME       8   /* B_HOME: Home / Mix / PATCH */
@@ -52,24 +52,24 @@
 
 /* Physical button (0..17) to logical action mapping */
 static const uint8_t SMK_BTN_MAP[18] = {
-    ACT_LFO        /* 0: KNOB BANK -> Step Erase / LFO */,
-    ACT_SAVE       /* 1: FADER BANK -> Save */,
-    ACT_OCTDN      /* 2: < (LEFT) -> Nav Left / Undo */,
-    ACT_OCTUP      /* 3: > (RIGHT) -> Nav Right / Redo */,
-    ACT_KBD_OCTDN  /* 4: OCTAVE- -> Keybed Octave Down */,
-    ACT_KBD_OCTUP  /* 5: OCTAVE+ -> Keybed Octave Up */,
-    ACT_ARP        /* 6: ARP -> Arpeggiator */,
-    ACT_REPEAT     /* 7: NOTE REPEAT -> Repeat / Arp Mode */,
-    ACT_SCALE      /* 8: SCALE -> Scale Page */,
-    ACT_CHORD      /* 9: CHORD -> Chord Mode Cycle */,
-    ACT_GLO        /* 10: GLOBE -> Global / Mutes */,
-    ACT_ENV        /* 11: BT -> Envelope / Tap Tempo */,
-    ACT_HOME       /* 12: PATCH -> Home / Mix */,
-    ACT_EDIT       /* 13: PARA -> Parameter Edit */,
-    ACT_FX         /* 14: FX -> FX */,
-    ACT_SEQ        /* 15: SEQ -> Sequencer */,
-    ACT_PLAY       /* 16: SEQ PLAY -> Play / Pause */,
-    ACT_REC        /* 17: SEQ REC -> Record */,
+    ACT_SCALE      /* 0: KNOB BANK */,
+    ACT_FBANK      /* 1: FADER BANK */,
+    ACT_OCTDN      /* 2: < (LEFT) */,
+    ACT_OCTUP      /* 3: > (RIGHT) */,
+    ACT_KBD_OCTDN  /* 4: OCTAVE- */,
+    ACT_KBD_OCTUP  /* 5: OCTAVE+ */,
+    ACT_ARP        /* 6: ARP */,
+    ACT_REPEAT     /* 7: NOTE REPEAT */,
+    ACT_SEL        /* 8: SCALE */,
+    ACT_CHORD      /* 9: CHORD */,
+    ACT_GLO        /* 10: GLOBE */,
+    ACT_ENV        /* 11: BT */,
+    ACT_HOME       /* 12: PATCH */,
+    ACT_EDIT       /* 13: PARA */,
+    ACT_FX         /* 14: FX */,
+    ACT_SEQ        /* 15: SEQ */,
+    ACT_PLAY       /* 16: SEQ PLAY */,
+    ACT_REC        /* 17: SEQ REC */,
 };
 
 /* Physical Encoders K1..K8 */
@@ -90,8 +90,8 @@ static const uint8_t SMK_ENC_MAP[8] = {
     ENC_ACT_KNOB3  /* K3 */,
     ENC_ACT_KNOB4  /* K4 */,
     ENC_ACT_TEMPO  /* K5 */,
-    ENC_ACT_PADSEL /* K6 */,
-    ENC_ACT_SAMPLE /* K7 */,
+    ENC_ACT_SAMPLE /* K6 */,
+    ENC_ACT_PADSEL /* K7 */,
     ENC_ACT_MASTER /* K8 */,
 };
 
