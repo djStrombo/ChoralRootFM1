@@ -52,24 +52,24 @@
 
 /* Physical button (0..17) to logical action mapping */
 static const uint8_t SMK_BTN_MAP[18] = {
-    ACT_LFO        /* 0: KNOB BANK */,
-    ACT_SAVE       /* 1: FADER BANK */,
-    ACT_OCTDN      /* 2: < (LEFT) */,
-    ACT_OCTUP      /* 3: > (RIGHT) */,
-    ACT_KBD_OCTDN  /* 4: OCTAVE- */,
-    ACT_KBD_OCTUP  /* 5: OCTAVE+ */,
-    ACT_ARP        /* 6: ARP */,
-    ACT_REPEAT     /* 7: NOTE REPEAT */,
-    ACT_SCALE      /* 8: SCALE */,
-    ACT_CHORD      /* 9: CHORD */,
-    ACT_GLO        /* 10: GLOBE */,
-    ACT_ENV        /* 11: BT */,
-    ACT_HOME       /* 12: PATCH */,
-    ACT_EDIT       /* 13: PARA */,
-    ACT_FX         /* 14: FX */,
-    ACT_SEQ        /* 15: SEQ */,
-    ACT_PLAY       /* 16: SEQ PLAY */,
-    ACT_REC        /* 17: SEQ REC */,
+    ACT_OCTDN      /* 0: KNOB BANK */,
+    ACT_OCTUP      /* 1: FADER BANK */,
+    ACT_FX         /* 2: < (LEFT) */,
+    ACT_SCALE      /* 3: > (RIGHT) */,
+    ACT_ENV        /* 4: OCTAVE- */,
+    ACT_LFO        /* 5: OCTAVE+ */,
+    ACT_EDIT       /* 6: ARP */,
+    ACT_GLO        /* 7: NOTE REPEAT */,
+    ACT_HOME       /* 8: SCALE */,
+    ACT_SAVE       /* 9: CHORD */,
+    ACT_ARP        /* 10: GLOBE */,
+    ACT_SEQ        /* 11: BT */,
+    ACT_PLAY       /* 12: PATCH */,
+    ACT_REC        /* 13: PARA */,
+    ACT_PREV       /* 14: FX */,
+    ACT_NEXT       /* 15: SEQ */,
+    ACT_FBANK      /* 16: SEQ PLAY */,
+    ACT_SEL        /* 17: SEQ REC */,
 };
 
 /* Physical Encoders K1..K8 */
@@ -89,9 +89,9 @@ static const uint8_t SMK_ENC_MAP[8] = {
     ENC_ACT_KNOB2  /* K2 */,
     ENC_ACT_KNOB3  /* K3 */,
     ENC_ACT_KNOB4  /* K4 */,
-    ENC_ACT_PADSEL /* K5 */,
-    ENC_ACT_SAMPLE /* K6 */,
-    ENC_ACT_TEMPO  /* K7 */,
+    ENC_ACT_TEMPO  /* K5 */,
+    ENC_ACT_PADSEL /* K6 */,
+    ENC_ACT_SAMPLE /* K7 */,
     ENC_ACT_MASTER /* K8 */,
 };
 
@@ -116,10 +116,10 @@ static const uint8_t SMK_ENC_MAP[8] = {
 
 /* Physical faders F1..F4 (indices 0..3) mapping */
 static const uint8_t SMK_FAD_MAP[4] = {
-    FAD_ACT_CH1      /* F1 */,
-    FAD_ACT_CH2      /* F2 */,
-    FAD_ACT_CH3      /* F3 */,
-    FAD_ACT_CH4      /* F4 */,
+    FAD_ACT_DEFAULT  /* F1 */,
+    FAD_ACT_CH1      /* F2 */,
+    FAD_ACT_CH2      /* F3 */,
+    FAD_ACT_CH3      /* F4 */,
 };
 
 /* Function prototypes */
