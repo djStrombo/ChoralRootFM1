@@ -58,7 +58,9 @@ SDK_SHA256 = {
 }
 
 UNIT = "choralroot"                 # firmware/src/UNIT.c; outputs build/UNIT.{bin,elf,dis,fwsc}
-PRODUCT = "FM-1_920"                # package identity (ChoralRoot: constant, releases too)
+BOARD = os.environ.get("BOARD", "smk37")
+MODEL = os.environ.get("MODEL", "elite")
+PRODUCT = "SMK-37 Elite_016" if (BOARD == "smk37" and MODEL == "elite") else ("SMK-37 Pro_900" if BOARD == "smk37" else "FM-1_920")
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/choralroot.c)
 XIP_LEN, RAM_LEN, POOL_LEN, NOINIT_LEN = fm1pkg_make.BODY_MAX, 96 * 1024, 0x54000, 0x3D30   # firmware/app.ld
 
@@ -256,7 +258,7 @@ def build_stub():
 
 def build_app(stub):
     flags = []
-    if getattr(a, "board", "fm1") == "smk37":
+    if BOARD == "smk37":
         flags.append("-DBOARD_SMK37=1")
     flags += [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
@@ -441,13 +443,18 @@ def mmio_check():
 
 
 def main():
-    global VERSION
+    global PRODUCT, VERSION, BOARD, MODEL
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help=f"release build: identity {PRODUCT}, version string ChoralRoot X.Y")
-    ap.add_argument("--board", choices=("fm1", "smk37"), default="fm1")
-    ap.add_argument("--model", choices=("pro", "elite"), default="pro")
+    ap.add_argument("--board", choices=("fm1", "smk37"), default=BOARD)
+    ap.add_argument("--model", choices=("pro", "elite"), default=MODEL)
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
+    BOARD = a.board
+    MODEL = a.model
+    fm1pkg_make.set_board(BOARD)
+    if BOARD == "smk37":
+        PRODUCT = "SMK-37 Elite_016" if MODEL == "elite" else "SMK-37 Pro_900"
     name = f"{UNIT}.fwsc"
     if a.release:                   # the identity stays FM-1_920: only the version string and the names change
         m = re.fullmatch(r"\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?", a.release)   # the identity never encodes it
