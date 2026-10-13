@@ -4396,13 +4396,12 @@ static void cr_ui_input(void)
                     case FAD_ACT_CH4:
                     case FAD_ACT_MASTER:
                         smk_master = (int32_t)cur_f * 8;
-                        master_poll();
                         break;
                     case FAD_ACT_CUTOFF:
-                        trk[CR_PART_CHORD].p[P_CUT] = (int16_t)cur_f;
+                        trk[CR_PART_CHORD].p[P_ED_FLT] = (int16_t)cur_f;
                         break;
                     case FAD_ACT_RESO:
-                        trk[CR_PART_CHORD].p[P_RES] = (int16_t)cur_f;
+                        trk[CR_PART_CHORD].p[P_E1] = (int16_t)cur_f;
                         break;
                     default:
                         if (fact >= FAD_ACT_CH1 && fact <= FAD_ACT_CH8) {
