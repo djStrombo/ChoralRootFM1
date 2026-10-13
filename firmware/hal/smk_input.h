@@ -61,7 +61,7 @@ static uint32_t smk_raw_btn_state;
 #define SMK_KEY_REL 3u            /* frames with contact 1 open: a key release (~5 ms) */
 #define SMK_ENC_DIV 4             /* decoder counts a step: a detent is a whole quadrature cycle (the stock's 2
                                    * gave two UI steps a click, as the FM-1 has one) */
-enum { FM1_BTN_OCT_DOWN = 4, FM1_BTN_OCT_UP = 5 };
+enum { FM1_BTN_OCT_DOWN = 0, FM1_BTN_OCT_UP = 1 };
 enum { SMK_BTN_KNOB_BANK = 0, SMK_BTN_FADER_BANK = 1, SMK_BTN_LEFT = 2, SMK_BTN_RIGHT = 3 };   /* (main.c: the power-on combo) */
 #define FM1_OCT_BOTH (1u << FM1_BTN_OCT_DOWN | 1u << FM1_BTN_OCT_UP)
 
@@ -151,6 +151,10 @@ static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
 static uint8_t fm1_led_dim[FM1_NCOL];
 static uint8_t fm1_led_dim2[FM1_NCOL];
 static uint8_t fm1_led_faint[FM1_NCOL];
+static uint8_t fm1_led_breath[FM1_NCOL];
+static uint8_t fm1_led_mid[FM1_NCOL];
+static inline void fm1_led_dim_level(uint32_t lo) { (void)lo; }
+static inline void fm1_led_anim_start(uint32_t glow) { (void)glow; }
 static uint8_t fm1__dim_k = 16, fm1__dim2_k = 16, fm1__faint_k = 16;
 
 #define FM1_GAP_BINS 8u
@@ -448,7 +452,8 @@ static void smk__encoders(void)                    /* stock decoder: 3-state win
             fm1_in.enc_cnt[e]++;                     /* B leads */
         if (fm1_in.enc_cnt[e] >= SMK_ENC_DIV || fm1_in.enc_cnt[e] <= -SMK_ENC_DIV) {   /* one step a detent */
             int32_t s = fm1_in.enc_cnt[e] / SMK_ENC_DIV;
-            fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + s);
+            uint8_t act = (e < 8) ? SMK_ENC_MAP[e] : e;
+            if (act < FM1_NENC) fm1_in.enc_steps[act] = (int16_t)(fm1_in.enc_steps[act] + s);
             fm1_in.enc_cnt[e] = (int16_t)(fm1_in.enc_cnt[e] - s * SMK_ENC_DIV);
         }
     }
@@ -566,8 +571,12 @@ static void smk__analog(uint32_t slot, uint32_t raw)
         v = (uint32_t)acc / 16u / 8u;
         if (v > 127u)
             v = 127u;
-        if (v > fm1_in.fader[f] + 1u || v + 1u < fm1_in.fader[f] || (v != fm1_in.fader[f] && (v == 0u || v == 127u)))
-            fm1_in.fader[f] = (uint8_t)v;                    /* +-1 dead band, the ends reachable */
+        if (v > fm1_in.fader[f] + 1u || v + 1u < fm1_in.fader[f] || (v != fm1_in.fader[f] && (v == 0u || v == 127u))) {
+            uint8_t lf = (f < 4) ? SMK_FAD_MAP[f] : f;
+            if (lf < 4) {
+                fm1_in.fader[lf] = (uint8_t)v;
+            }
+        }
     } else if (a < 6u) {
         fm1_in.wheel[a - 4u] = (uint16_t)(fm1_in.wheel[a - 4u] + ((int32_t)raw - fm1_in.wheel[a - 4u]) / 4);
     } else if (a == 6u) {
