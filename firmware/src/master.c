@@ -18,6 +18,18 @@ static int32_t master_knob = 512 * 16;
 static inline uint32_t master_of_pot(uint32_t k10) { return (k10 * k10) >> 8; }   /* 0 .. ~4096 */
 static void master_poll(void)
 {
+#if BOARD_SMK37
+    int32_t m_steps = 0;
+    for (uint32_t k = 0; k < 8; k++) {
+        if (SMK_ENC_MAP[k] == ENC_ACT_MASTER) {
+            m_steps = fm1_enc_take(k);
+            break;
+        }
+    }
+    if (m_steps) {
+        smk_master = clamp(smk_master + m_steps * 16, 0, 1023);
+    }
+#endif
     int32_t a = fm1_adc_read(FM1_ADC_MASTER);
     if (a >= 0) {
         master_knob += (a * 16 - master_knob) / 8;

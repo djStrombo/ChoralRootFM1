@@ -52,15 +52,15 @@
 
 /* Physical button (0..17) to logical action mapping */
 static const uint8_t SMK_BTN_MAP[18] = {
-    ACT_SCALE      /* 0: KNOB BANK */,
-    ACT_FBANK      /* 1: FADER BANK */,
+    ACT_LFO        /* 0: KNOB BANK */,
+    ACT_SAVE       /* 1: FADER BANK */,
     ACT_OCTDN      /* 2: < (LEFT) */,
     ACT_OCTUP      /* 3: > (RIGHT) */,
     ACT_KBD_OCTDN  /* 4: OCTAVE- */,
     ACT_KBD_OCTUP  /* 5: OCTAVE+ */,
     ACT_ARP        /* 6: ARP */,
     ACT_REPEAT     /* 7: NOTE REPEAT */,
-    ACT_SEL        /* 8: SCALE */,
+    ACT_SCALE      /* 8: SCALE */,
     ACT_CHORD      /* 9: CHORD */,
     ACT_GLO        /* 10: GLOBE */,
     ACT_ENV        /* 11: BT */,
@@ -89,9 +89,9 @@ static const uint8_t SMK_ENC_MAP[8] = {
     ENC_ACT_KNOB2  /* K2 */,
     ENC_ACT_KNOB3  /* K3 */,
     ENC_ACT_KNOB4  /* K4 */,
-    ENC_ACT_TEMPO  /* K5 */,
+    ENC_ACT_PADSEL /* K5 */,
     ENC_ACT_SAMPLE /* K6 */,
-    ENC_ACT_PADSEL /* K7 */,
+    ENC_ACT_TEMPO  /* K7 */,
     ENC_ACT_MASTER /* K8 */,
 };
 
@@ -124,3 +124,4 @@ static const uint8_t SMK_FAD_MAP[4] = {
 
 /* Function prototypes */
 int32_t smk_quantize_note(int32_t note_offset);
+

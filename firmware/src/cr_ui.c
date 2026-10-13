@@ -4362,6 +4362,93 @@ static void cr_ui_input(void)
         (void)ne;
         return;
     }
+#if BOARD_SMK37
+    {
+        static uint8_t last_fader[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+        for (uint32_t f = 0; f < 4u; f++) {
+            uint8_t cur_f = fm1_in.fader[f];
+            if (last_fader[f] == 0xFF) {
+                last_fader[f] = cur_f;
+                continue;
+            }
+            if (cur_f != last_fader[f]) {
+                last_fader[f] = cur_f;
+                uint8_t fact = (f < 4) ? SMK_FAD_MAP[f] : FAD_ACT_DEFAULT;
+                if (fact == FAD_ACT_DEFAULT) {
+                    if (f == 0) fact = FAD_ACT_CH1;
+                    else if (f == 1) fact = FAD_ACT_CH2;
+                    else if (f == 2) fact = FAD_ACT_CH3;
+                    else fact = FAD_ACT_CH4;
+                }
+                switch (fact) {
+                    case FAD_ACT_CH1:
+                        trk[CR_PART_CHORD].p[P_LEVEL] = (int16_t)cur_f;
+                        cu_popup_num(cur_f, 0, "", "chord level", CR_COL_ORANGE, 0, 127, 12);
+                        break;
+                    case FAD_ACT_CH2:
+                        trk[CR_PART_BASS].p[P_LEVEL] = (int16_t)cur_f;
+                        cu_popup_num(cur_f, 0, "", "bass level", CR_COL_ORANGE, 0, 127, 12);
+                        break;
+                    case FAD_ACT_CH3:
+                        cu_send_set(0, 2, cur_f);
+                        cu_popup_num(cur_f, 0, "", "reverb send", CR_COL_GREEN, 0, 127, 12);
+                        break;
+                    case FAD_ACT_CH4:
+                    case FAD_ACT_MASTER:
+                        smk_master = (int32_t)cur_f * 8;
+                        master_poll();
+                        break;
+                    case FAD_ACT_CUTOFF:
+                        trk[CR_PART_CHORD].p[P_CUT] = (int16_t)cur_f;
+                        break;
+                    case FAD_ACT_RESO:
+                        trk[CR_PART_CHORD].p[P_RES] = (int16_t)cur_f;
+                        break;
+                    default:
+                        if (fact >= FAD_ACT_CH1 && fact <= FAD_ACT_CH8) {
+                            uint32_t idx = fact - FAD_ACT_CH1;
+                            if (idx < NPART) trk[idx].p[P_LEVEL] = (int16_t)cur_f;
+                        }
+                        break;
+                }
+            }
+        }
+
+        if (pe & (1u << ACT_KBD_OCTDN)) {
+            if (cu.octave > -2) {
+                cu.octave--;
+                song.octave = cu.octave;
+                cu_popup_num(cu.octave, 1, "", "octave", CR_COL_WHITE, -2, 2, 5);
+            }
+        }
+        if (pe & (1u << ACT_KBD_OCTUP)) {
+            if (cu.octave < 2) {
+                cu.octave++;
+                song.octave = cu.octave;
+                cu_popup_num(cu.octave, 1, "", "octave", CR_COL_WHITE, -2, 2, 5);
+            }
+        }
+        if (pe & (1u << ACT_CHORD)) {
+            cu_btn_press(B_EDIT);
+            cu_btn_release(B_EDIT);
+        }
+        if (pe & (1u << ACT_REPEAT)) {
+            cu_btn_press(B_ARP);
+            cu_btn_release(B_ARP);
+        }
+        if (pe & (1u << ACT_SEL)) {
+            cu_btn_press(B_SCL);
+            cu_btn_release(B_SCL);
+        }
+        pe &= ~((1u << ACT_KBD_OCTDN) | (1u << ACT_KBD_OCTUP) | (1u << ACT_CHORD) | (1u << ACT_REPEAT) | (1u << ACT_SEL));
+
+        smk_led_physical(4, cu.octave < 0);
+        smk_led_physical(5, cu.octave > 0);
+        smk_led_physical(6, cs.perform_on != 0);
+        smk_led_physical(16, song.playing != 0);
+        smk_led_physical(17, song.rec != 0);
+    }
+#endif
     for (b = 0; b < NB; b++) {
         cur |= ((bm >> panel.btn[b]) & 1u) << b;
         edg |= ((pe >> panel.btn[b]) & 1u) << b;
