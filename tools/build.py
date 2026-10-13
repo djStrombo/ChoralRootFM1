@@ -163,7 +163,7 @@ def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
     flags = []
-    if getattr(a, "board", "fm1") == "smk37":
+    if BOARD == "smk37":
         flags.append("-DBOARD_SMK37=1")
     flags += [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
