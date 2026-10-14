@@ -1697,7 +1697,7 @@ static void keyboard_block(void)
             uint32_t ek = (uint32_t)(ev >> 8);
             uint32_t ev_vel = (uint32_t)(ev & 0xFF);
             track_t *t = TSEL;
-            uint32_t mc = trk_midi_ch(sel);
+            uint32_t mc = trk_midi_ch(trk_index(t));
             if (is_drum(t)) {
                 uint32_t lane = (ek < 5u) ? (ek % 3u) : (10u + (ek - 32u) % 6u);
                 if (ev_vel) {
