@@ -294,11 +294,9 @@ static void smk__key_event(uint32_t k, uint32_t vel)     /* vel 0 = release */
             fm1_in.knotes &= ~bit;
         }
         fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
+    } else {
+        smk__extq(k, vel);
     }
-    if (vel)
-        fm1_in.keys |= (uint64_t)1u << k;
-    else
-        fm1_in.keys &= ~((uint64_t)1u << k);
 }
 
 static void smk__keys(uint32_t now)
@@ -446,16 +444,12 @@ static void smk__padq(uint32_t pad, uint32_t vel)     /* a pad hit (vel) or rele
     }
     n = (uint32_t)n0;
     bit = 1u << n;
-    uint32_t key37 = SMK_KEY_F3 + n;
     if (vel) {
-        fm1_in.key_vel[key37] = (uint8_t)vel;
+        fm1_in.key_vel[SMK_KEY_F3 + n] = (uint8_t)vel;
         fm1_in.pnotes |= bit;
         fm1_in.notes_pressed |= bit;
-        fm1_in.keys |= ((uint64_t)1u << key37);
     } else {
         fm1_in.pnotes &= ~bit;
-        if (!(fm1_in.knotes & bit))
-            fm1_in.keys &= ~((uint64_t)1u << key37);
     }
     fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
 }
