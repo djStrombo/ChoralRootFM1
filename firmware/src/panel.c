@@ -26,7 +26,7 @@ static const panel_t PANEL_DEFAULT = {
     PANEL_MAGIC,
     {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1},   /* PLAY = 12, REC = 13 */
     #if BOARD_SMK37
-    {4, 6, 5, 0, 1, 2, 3},
+    {4, 5, 6, 0, 1, 2, 3},
 #else
     {0, 1, 6, 2, 3, 4, 5},
 #endif                           /* SELECT = enc 0, ALGORITHM = enc 1, PRESETS = enc 6 */

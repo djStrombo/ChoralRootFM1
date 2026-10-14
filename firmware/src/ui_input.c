@@ -963,6 +963,8 @@ static void ui_input(void)
                 last_fader[f] = cur_f;
                 if (f < 3) {
                     trk[f].p[P_LEVEL] = (int16_t)cur_f;
+                } else {
+                    song.g[G_DRLVL] = (int16_t)cur_f;
                 }
                 ui.force = 1;
             }

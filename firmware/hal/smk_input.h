@@ -91,7 +91,7 @@ static const uint8_t SMK_LEDC[SMK_NLED] = {0x0c, 0x12, 0x00, 0x10, 0x0d, 0x1d, 0
 /* analog: mux address -> pad on mux A (ch1); mux B (ch8) = the same + 8 (stock table) */
 static const uint8_t SMK_PADMUX[8] = {1, 2, 3, 0, 4, 7, 5, 6};
 /* mux C (ch2): address 0..3 -> fader 1,2,3,0; 4, 5 wheels; 6 pedal; 7 battery */
-static const uint8_t SMK_FADMUX[4] = {1, 2, 3, 0};
+static const uint8_t SMK_FADMUX[4] = {0, 1, 2, 3};
 enum { SMK_ADC_PADA = 1, SMK_ADC_PADB = 8, SMK_ADC_MUXC = 2 };
 /* the pads are the 16 white keys of the FM-1's 27 (F3 G3 A3 B3 C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5): the step
  * grid, the drum sounds and every layer's tiles land on them, in reading order: the top row (hardware pads 0..7,
@@ -104,6 +104,7 @@ static const int8_t SMK_PIANO_NOTE[SMK_NPAD] = {8, 10, -1, 13, 15, 17, -1, 20, 7
 static volatile uint8_t smk_pad_piano;
 static uint8_t smk_pad_note[SMK_NPAD];   /* the note key a pad pressed (+1; 0 = none): its release ends that one */
 #define SMK_WHITE_OF_PAD(p) (p)   /* hardware pad -> white key 0..15 */
+static int32_t smk_master = 724;
 
 /* 5-point velocity curves stored in flash (.rodata) to save 430B of RAM */
 static const uint16_t SMK_TRIM_PAD[5] = {50, 550, 720, 850, 950};
@@ -515,10 +516,22 @@ static void smk__analog(uint32_t slot, uint32_t raw)
         v = (uint32_t)acc / 16u / 8u;
         if (v > 127u)
             v = 127u;
-        if (v > fm1_in.fader[f] + 1u || v + 1u < fm1_in.fader[f] || (v != fm1_in.fader[f] && (v == 0u || v == 127u))) {
-            uint8_t lf = (f < 4) ? SMK_FAD_MAP[f] : f;
-            if (lf < 4) {
-                fm1_in.fader[lf] = (uint8_t)v;
+        uint8_t act = (f < 4) ? SMK_FAD_MAP[f] : (uint8_t)f;
+        uint8_t target_f = (uint8_t)f;
+        if (act >= FAD_ACT_CH1 && act <= FAD_ACT_CH4) {
+            target_f = (uint8_t)(act - FAD_ACT_CH1);
+        } else if (act == FAD_ACT_DEFAULT) {
+            target_f = (uint8_t)f;
+        } else if (act < 4) {
+            target_f = act;
+        }
+        static uint8_t fad_last[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+        if (fad_last[f] == 0xFF || v > (uint32_t)fad_last[f] + 1u || (uint32_t)fad_last[f] > v + 1u || (v != fad_last[f] && (v == 0u || v == 127u))) {
+            fad_last[f] = (uint8_t)v;
+            if (act == FAD_ACT_MASTER) {
+                smk_master = (int32_t)(v * 1023u / 127u);
+            } else if (target_f < 4) {
+                fm1_in.fader[target_f] = (uint8_t)v;
             }
         }
     } else if (a < 6u) {
@@ -659,7 +672,6 @@ static void smk_led_physical(uint32_t phy_id, int on)
 
 /* fm1_adc.h stand-ins for main.c: the battery comes from mux C; the FM-1's MASTER pot */
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
-static int32_t smk_master = 724;
 static void fm1_adc_init(void) {}
 static int32_t fm1_enc_take(uint32_t e);
 static int32_t fm1_adc_read(uint32_t ch)
@@ -667,6 +679,12 @@ static int32_t fm1_adc_read(uint32_t ch)
     if (ch == FM1_ADC_BATT)
         return fm1_in.batt ? (int32_t)fm1_in.batt : -1;
     if (ch == FM1_ADC_MASTER) {
+        int32_t s = fm1_enc_take(7);
+        if (s) {
+            smk_master += s * 16;
+            if (smk_master < 0) smk_master = 0;
+            if (smk_master > 1023) smk_master = 1023;
+        }
         return smk_master;
     }
     return -1;
