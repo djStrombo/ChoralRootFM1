@@ -163,7 +163,7 @@ static uint32_t padled_rgb[PADLED_N];
 static uint8_t padled_dirty = 1;
 static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
 
-static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
+void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
 {
     uint32_t c = (uint32_t)g << 16 | (uint32_t)r << 8 | b;
     if (pad < PADLED_N && padled_rgb[pad] != c) {
@@ -172,7 +172,7 @@ static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
     }
 }
 
-static void padled_flush(void)
+void padled_flush(void)
 {
     uint32_t p, i;
     if (!padled_dirty)
@@ -189,7 +189,7 @@ static void padled_flush(void)
     fm1_padled_done();
 }
 
-static void padled_init(void)
+void padled_init(void)
 {
     uint32_t p;
     for (p = 0; p < PADLED_N; p++)

@@ -135,6 +135,10 @@ FM1_INLINE void fm1_padled_done(void)
     FM1_LCD_IOMAP_CON1 &= ~FM1_LCD_GROUP_B;
     FM1_LCD_SPI_BAUD = fm1_lcd_cur_baud;
 }
+
+void padled_init(void);
+void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b);
+void padled_flush(void);
 #endif
 
 FM1_INLINE void fm1_lcd_backlight(uint32_t on) {
