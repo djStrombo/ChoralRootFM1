@@ -105,9 +105,9 @@ static volatile uint8_t smk_pad_piano;
 static uint8_t smk_pad_note[SMK_NPAD];   /* the note key a pad pressed (+1; 0 = none): its release ends that one */
 #define SMK_WHITE_OF_PAD(p) (p)   /* hardware pad -> white key 0..15 */
 
-#define SMK_TRIM_FLASH 0xC1000u   /* USRTRIM: the factory calibration record ("trimdat"), never written here */
-/* 5-point velocity curves (trimdata, flash 0xC1000: +0x08 16 pads x 5 u16, +0xA8 37 keys x 5 u16) */
-static uint16_t smk_trim_pad[SMK_NPAD][5], smk_trim_key[FM1_NKEY][5];
+/* 5-point velocity curves stored in flash (.rodata) to save 430B of RAM */
+static const uint16_t SMK_TRIM_PAD[5] = {50, 550, 720, 850, 950};
+static const uint16_t SMK_TRIM_KEY[5] = {5, 640, 800, 920, 980};
 
 /* ------------------------------------------------------------------ state --- */
 static volatile struct {
@@ -242,50 +242,11 @@ static uint32_t smk_curve(const uint16_t *t, uint32_t x)   /* stock curve: 5 poi
 }
 FM1_INLINE uint8_t smk_vel7(uint32_t v10) { return (uint8_t)(v10 >> 3 ? v10 >> 3 : 1u); }
 
-static void smk_trim_defaults(void)
-{
-    static const uint16_t P[5] = {50, 550, 720, 850, 950}, K[5] = {5, 640, 800, 920, 980};
-    uint32_t i, j;
-    for (i = 0; i < SMK_NPAD; i++)
-        for (j = 0; j < 5u; j++)
-            smk_trim_pad[i][j] = P[j];
-    for (i = 0; i < FM1_NKEY; i++)
-        for (j = 0; j < 5u; j++)
-            smk_trim_key[i][j] = K[j];
-}
-
-/* the factory calibration record (0x22C bytes, "trimdat\0" at +0x224), e.g. read from flash 0xC1000;
- * ignored unless the marker and strictly rising curves check out. Returns 1 if taken. */
-static int smk_trim_load(const uint8_t *rec)
-{
-    static const char M[8] = "trimdat";
-    uint32_t i, j, ok = 1;
-    const uint8_t *p;
-    for (i = 0; i < 8u; i++)
-        ok &= rec[0x224u + i] == (uint8_t)M[i];
-    for (i = 0; ok && i < SMK_NPAD + FM1_NKEY; i++) {
-        p = rec + 8u + i * 10u;
-        for (j = 1; j < 5u; j++)
-            ok &= (p[2u * j] | p[2u * j + 1u] << 8) > (p[2u * j - 2u] | p[2u * j - 1u] << 8);
-    }
-    if (!ok)
-        return 0;
-    for (i = 0; i < SMK_NPAD + FM1_NKEY; i++)
-        for (j = 0; j < 5u; j++) {
-            uint16_t v = (uint16_t)(rec[8u + i * 10u + 2u * j] | rec[9u + i * 10u + 2u * j] << 8);
-            if (i < SMK_NPAD)
-                smk_trim_pad[i][j] = v;
-            else
-                smk_trim_key[i - SMK_NPAD][j] = v;
-        }
-    return 1;
-}
 
 /* ------------------------------------------------------------------ init --- */
 static void fm1_input_init(void)
 {
     uint32_t i;
-    smk_trim_defaults();
     smk__pin_out(FM1_PA, (1u << 0) | (1u << 1), 0);              /* PA0 /OE low, PA1 latch low */
     smk__pin_out(FM1_PA, (1u << 3) | (1u << 4), 0);              /* SPI2 CLK, DO */
     smk__pin_in_pu(FM1_PA, (1u << 2) | (1u << 5) | (1u << 6) | (1u << 7) | (1u << 9));
@@ -367,7 +328,7 @@ static void smk__keys(uint32_t now)
         if (s == 3u && st != 3u) {                        /* contact 2 made: the note, timed from contact 1 */
             uint32_t T = 10u + (now - fm1_in.ks_t1[k]) / (100u * FM1_TICKS_PER_US);   /* stock 0.1 ms frames */
             uint32_t x = T <= 0x3FEu ? 0x3FFu - T : 1u;
-            smk__key_event(k, smk_vel7(smk_curve(smk_trim_key[k], x)));
+            smk__key_event(k, smk_vel7(smk_curve(SMK_TRIM_KEY, x)));
         }
         if (s == 1u && st == 3u)                          /* 3 -> 1: still down */
             continue;
@@ -506,7 +467,7 @@ static void smk__pad(uint32_t p, uint32_t raw)
             fm1_in.pad_peak[p] = (uint16_t)raw;
         } else if (base > raw) {
             fm1_in.pad_base[p] = (uint16_t)(base - 1u);     /* the baseline follows (stock) */
-        } else if (base < smk_trim_pad[p][0]) {
+        } else if (base < SMK_TRIM_PAD[0]) {
             fm1_in.pad_base[p] = (uint16_t)(base + 2u);
         }
         return;
@@ -520,7 +481,7 @@ static void smk__pad(uint32_t p, uint32_t raw)
         }
         fm1_in.pad_st[p] = 0x80;
         fm1_in.pad_low[p] = 0;
-        smk__padq(p, smk_vel7(smk_curve(smk_trim_pad[p], fm1_in.pad_peak[p])));
+        smk__padq(p, smk_vel7(smk_curve(SMK_TRIM_PAD, fm1_in.pad_peak[p])));
         return;
     }
     fm1_in.pad_press[p] = (uint8_t)(raw <= 0x200u ? raw >> 4 : (raw - 0x200u) / 4u + 32u > 127u ? 127u
