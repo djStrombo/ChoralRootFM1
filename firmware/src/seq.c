@@ -1720,7 +1720,7 @@ static void keyboard_block(void)
                     midi_out_note(mc, (uint32_t)note, ev_vel);
                 } else {
                     input_off(t, (uint32_t)note);
-                    midi_out_note_off(mc, (uint32_t)note);
+                    midi_out_note(mc, (uint32_t)note, 0);
                 }
             }
         }
