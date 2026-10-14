@@ -294,8 +294,6 @@ static void smk__key_event(uint32_t k, uint32_t vel)     /* vel 0 = release */
             fm1_in.knotes &= ~bit;
         }
         fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
-    } else {
-        smk__extq(k, vel);
     }
     if (vel)
         fm1_in.keys |= (uint64_t)1u << k;
@@ -448,12 +446,16 @@ static void smk__padq(uint32_t pad, uint32_t vel)     /* a pad hit (vel) or rele
     }
     n = (uint32_t)n0;
     bit = 1u << n;
+    uint32_t key37 = SMK_KEY_F3 + n;
     if (vel) {
-        fm1_in.key_vel[SMK_KEY_F3 + n] = (uint8_t)vel;
+        fm1_in.key_vel[key37] = (uint8_t)vel;
         fm1_in.pnotes |= bit;
         fm1_in.notes_pressed |= bit;
+        fm1_in.keys |= ((uint64_t)1u << key37);
     } else {
         fm1_in.pnotes &= ~bit;
+        if (!(fm1_in.knotes & bit))
+            fm1_in.keys &= ~((uint64_t)1u << key37);
     }
     fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
 }
@@ -652,14 +654,31 @@ static int32_t smk_extkey_take(void)
     return v;
 }
 
-/* LED of logical button id (0..13); lights physical LED(s) mapped to this action */
+static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b);
+static void padled_flush(void);
+
+/* LED of logical button id (0..13); note key / step id (14..40) */
 static void fm1_led_key(uint32_t id, int on)
 {
-    uint32_t i;
-    for (i = 0; i < FM1_NBTN; i++) {
-        if (SMK_BTN_MAP[i] == (uint8_t)id) {
-            if (i < SMK_NLED)
-                fm1_led[i] = (uint8_t)(on != 0);
+    if (id < 14u) {
+        uint32_t i;
+        for (i = 0; i < FM1_NBTN; i++) {
+            if (SMK_BTN_MAP[i] == (uint8_t)id) {
+                if (i < SMK_NLED)
+                    fm1_led[i] = (uint8_t)(on != 0);
+            }
+        }
+    } else if (id <= 40u) {
+        uint32_t k = id - 14u;
+        for (uint32_t p = 0; p < 16u; p++) {
+            if (SMK_WHITE_NOTE[p] == k) {
+                if (on)
+                    padled_set(p, 180, 180, 180);
+                else
+                    padled_set(p, 0, 0, 0);
+                padled_flush();
+                break;
+            }
         }
     }
 }

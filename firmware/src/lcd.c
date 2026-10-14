@@ -149,5 +149,56 @@ static void lcd_init(void)
     fm1_lcd_baud(LCD_BAUD);
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
+#if BOARD_SMK37
+    padled_init();
+#endif
 }
+
+#if BOARD_SMK37
+/* The 16 RGB pads (SMK-37 Pro): WS2812-class LEDs on SPI1 group B (PC10), one SPI byte per
+ * LED bit (0xF0 = 1, 0xC0 = 0, MSB first, GRB), 36 zero bytes of latch first: 420 bytes, as
+ * the stock firmware sends them. */
+#define PADLED_N 16u
+#define PADLED_LATCH 36u
+static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u];
+static uint32_t padled_rgb[PADLED_N];
+static uint8_t padled_dirty = 1;
+
+static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
+
+static void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
+{
+    uint32_t c = (uint32_t)g << 16 | (uint32_t)r << 8 | b;
+    if (pad < PADLED_N && padled_rgb[pad] != c) {
+        padled_rgb[pad] = c;
+        padled_dirty = 1;
+    }
+}
+
+static void padled_flush(void)
+{
+    uint32_t p, i;
+    if (!padled_dirty)
+        return;
+    padled_dirty = 0;
+    for (p = 0; p < PADLED_N; p++) {
+        uint8_t *o = padled_buf + PADLED_LATCH + PADLED_SLOT[p] * 24u;
+        for (i = 0; i < 24u; i++)
+            o[i] = (padled_rgb[p] >> (23u - i)) & 1u ? 0xF0u : 0xC0u;
+    }
+    lcd_sync();
+    fm1_padled_send(padled_buf, sizeof padled_buf);
+    fm1_lcd_wait();
+    fm1_padled_done();
+}
+
+static void padled_init(void)
+{
+    uint32_t p;
+    for (p = 0; p < PADLED_N; p++)
+        padled_rgb[p] = 0;
+    padled_dirty = 1;
+    padled_flush();
+}
+#endif
 

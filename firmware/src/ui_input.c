@@ -211,6 +211,47 @@ static uint32_t lights_keys_mask(void)
 
 static void ui_leds(void)
 {
+#if BOARD_SMK37
+    /* On SMK-37: drive physical button LEDs cleanly by assigned role */
+    for (uint32_t b = 0; b < SMK_NLED; b++) {
+        uint8_t act = SMK_BTN_MAP[b];
+        int on = 0;
+        if (act == ACT_PLAY) on = play_led() || song.playing;
+        else if (act == ACT_REC) on = song.rec != 0u || ft_on || (rec_wait && ((fm1_ms / 125u) & 1u));
+        else if (act == ACT_OCTDN) on = song.octave < 0;
+        else if (act == ACT_OCTUP) on = song.octave > 0;
+        else if (act == ACT_ARP) on = (TSEL->p[P_AMODE] != 0);
+        else if (act == ACT_SEQ) on = (ui.layer == LY_STEP);
+        else if (act == ACT_FX) on = (ui.layer == LY_FX);
+        else if (act == ACT_SCALE) on = (ui.layer == LY_SCALE);
+        else if (act == ACT_ENV) on = (ui.layer == LY_PLAY && cur_btn() == B_ENV);
+        else if (act == ACT_LFO) on = (ui.layer == LY_PLAY && cur_btn() == B_LFO);
+        else if (act == ACT_EDIT) on = (ui.layer == LY_ERASE || (ui.layer == LY_PLAY && cur_btn() == B_EDIT));
+        else if (act == ACT_GLO) on = (ui.layer == LY_MIX || (ui.layer == LY_PLAY && cur_btn() == B_GLO));
+        else if (act == ACT_HOME) on = (ui.home != 0);
+        else if (act == ACT_SAVE) on = (ui.layer == LY_SONG);
+        fm1_led[b] = (uint8_t)on;
+    }
+
+    /* Drive the 16 RGB pads in pure WHITE for active step sequencer steps, playing notes and guide landmarks */
+    uint32_t keys = keys_lit();
+    uint32_t guide = (keys_guide() | keys_notes_dim()) & ~keys;
+    for (uint32_t p = 0; p < 16u; p++) {
+        uint32_t wk = SMK_WHITE_NOTE[p];
+        int is_lit = (keys >> wk) & 1u;
+        int is_guide = (guide >> wk) & 1u;
+        int is_down = (fm1_in.pnotes >> wk) & 1u;
+        if (is_lit || is_down) {
+            padled_set(p, 180, 180, 180); /* Bright White */
+        } else if (is_guide) {
+            padled_set(p, 40, 40, 40);    /* Dim White landmark */
+        } else {
+            padled_set(p, 0, 0, 0);       /* Off */
+        }
+    }
+    padled_flush();
+    return;
+#endif
     uint8_t nl[FM1_NCOL] = {0}, dl[FM1_NCOL] = {0}, bl[FM1_NCOL] = {0};
     uint32_t k, c, keys, guide, back;
     static uint8_t ready;

@@ -43,9 +43,13 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 /* per key: what its press started, so its release ends the same (whatever the layer or track is now) */
-enum { KS_NONE, KS_NOTE, KS_DRUM, KS_ROLL, KS_ERASE, KS_FX, KS_UI, KS_MOD };   /* KS_MOD: a chord modifier (2.4) */
-static uint8_t kb_kind[27], kb_trk[27], kb_n[27], kb_nt[27][4], kb_root[27];   /* kb_root: a chord key's note (CHORD+) */
-static int8_t kb_oct[27];                   /* the octave buttons when the key went down (arp_add: held_key, #191) */
+#if BOARD_SMK37
+#define NUM_KB_KEYS 37u
+#else
+#define NUM_KB_KEYS 27u
+#endif
+static uint8_t kb_kind[NUM_KB_KEYS], kb_trk[NUM_KB_KEYS], kb_n[NUM_KB_KEYS], kb_nt[NUM_KB_KEYS][4], kb_root[NUM_KB_KEYS];   /* kb_root: a chord key's note (CHORD+) */
+static int8_t kb_oct[NUM_KB_KEYS];                   /* the octave buttons when the key went down (arp_add: held_key, #191) */
 static uint8_t last_note = 60;
 static uint8_t pen_n = 1, pen_note[4] = {60};   /* the last chord / note played: the SEQ layer writes it */
 static uint8_t pen_lane;                       /* the last drum lane played: the SEQ layer's lane */
@@ -198,7 +202,11 @@ static int kb_scaled(const track_t *t)
 static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
+#if BOARD_SMK37
+    int32_t n = 48 + (int32_t)k;
+#else
     int32_t n = 53 + (int32_t)k;
+#endif
     if (t->p[P_QUANT] == 1 && !t->p[P_CHORD]) {  /* SNAP: every key, rounded down to the scale (the old ON) */
         uint32_t mask = scale_mask(t), guard = 12;
         n += 12 * oct + t->p[P_TRANS];
@@ -1425,7 +1433,7 @@ static uint32_t key_lvl(void)
 static uint32_t chord_mods(void)
 {
     uint32_t k, m = 0;
-    for (k = 0; k < 27u; k++)
+    for (k = 0; k < NUM_KB_KEYS; k++)
         if (kb_kind[k] == KS_MOD)
             m |= chord_mod_of_key(k);
     return m;
@@ -1436,7 +1444,7 @@ static void chord_revoice(uint32_t sel)
 {
     uint32_t k, i, j, mods = chord_mods(), mc = trk_midi_ch(sel);
     track_t *t = &trk[sel % NTRK];
-    for (k = 0; k < 27u; k++) {
+    for (k = 0; k < NUM_KB_KEYS; k++) {
         uint8_t nw[4];
         uint32_t nn;
         if (kb_kind[k] != KS_NOTE || kb_trk[k] != sel || !t->p[P_CHORD] || is_drum(t))
@@ -1671,6 +1679,30 @@ static void audition_block(void)
 
 static void keyboard_block(void)
 {
+#if BOARD_SMK37
+    uint64_t cur = fm1_in.keys, ch;
+    static uint64_t kb_prev_keys;
+    uint32_t k, r;
+    audition_block();
+    if (er_mute && layer_now() != LY_ERASE)
+        er_mute = 0;                                  /* EDIT let go: its keys erase again (2.6) */
+    if (!(layer_buttons() & ly_bit[LY_ROLL]))         /* ARP up (and not locked): the rolls end (the keys stay silent) */
+        for (r = 0; r < NROLL; r++)
+            if (roll[r].on)
+                roll_end(r);
+    ch = cur ^ kb_prev_keys;
+    if (ch) {
+        for (k = 0; k < NUM_KB_KEYS; k++) {
+            if (!((ch >> k) & 1ULL))
+                continue;
+            if ((cur >> k) & 1ULL)
+                key_down(k);
+            else
+                key_up(k);
+            kb_prev_keys ^= (1ULL << k);
+        }
+    }
+#else
     uint32_t cur = fm1_in.notes, ch = cur ^ kb_prev, k, r;
     audition_block();
     if (er_mute && layer_now() != LY_ERASE)
@@ -1690,6 +1722,7 @@ static void keyboard_block(void)
             key_up(k);
         kb_prev ^= 1u << k;                           /* (key_down sees the keys down before it) */
     }
+#endif
 }
 
 /* LIVE: one record arm at most, on the selected track; selecting another track moves it there
