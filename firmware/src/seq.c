@@ -1680,15 +1680,15 @@ static void keyboard_block(void)
             if (roll[r].on)
                 roll_end(r);
     if (ch) {
-        for (k = 0; k < 27u; k++) {
-            if (!((ch >> k) & 1u))
-                continue;
-            if ((cur >> k) & 1u)
-                key_down(k);
-            else
-                key_up(k);
-            kb_prev ^= 1u << k;                           /* (key_down sees the keys down before it) */
-        }
+    for (k = 0; k < 27u; k++) {
+        if (!((ch >> k) & 1u))
+            continue;
+        if ((cur >> k) & 1u)
+            key_down(k);
+        else
+            key_up(k);
+        kb_prev ^= 1u << k;                           /* (key_down sees the keys down before it) */
+    }
     }
 #if BOARD_SMK37
     {
@@ -1726,6 +1726,7 @@ static void keyboard_block(void)
         }
     }
 #endif
+
 }
 
 /* LIVE: one record arm at most, on the selected track; selecting another track moves it there
