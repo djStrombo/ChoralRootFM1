@@ -136,23 +136,16 @@ static volatile struct {
     uint16_t fad_acc[4];         /* faders: 0..1023 IIR */
     uint8_t fader[4];            /* 0..127 */
     uint16_t wheel[2], pedal, batt;   /* raw 0..1023 (mux C addresses 4, 5, 6, 7) */
-    uint16_t fad_raw[4];         /* (debug: the last raw fader readings) */
     uint16_t fad_hist[4][2];     /* the two readings before: a median of 3 drops a lone spike */
-    uint32_t adc_ok, adc_miss;   /* (debug: conversions read / not finished within a tick) */
-    uint32_t frames;
 } fm1_in;
 
 /* key events beyond the FM-1's 27 (keybed keys 0..4 and 32..36): key << 8 | velocity (0 = release) */
-#define SMK_EXTQ 8u
+#define SMK_EXTQ 4u
 static volatile uint16_t smk_extq[SMK_EXTQ];
 static volatile uint8_t smk_extq_w, smk_extq_r;
 
 static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
 static uint8_t fm1_led_dim[FM1_NCOL];
-static uint8_t fm1_led_dim2[FM1_NCOL];
-static uint8_t fm1_led_faint[FM1_NCOL];
-static uint8_t fm1_led_breath[FM1_NCOL];
-static uint8_t fm1_led_mid[FM1_NCOL];
 static uint8_t fm1_led_bg[FM1_NCOL];
 static volatile uint16_t fm1_led_bg_ns;
 static inline void fm1_led_dim_level(uint32_t lo) { (void)lo; }
@@ -161,7 +154,6 @@ static inline int  fm1_led_anim_on(void) { return 0; }
 static inline void fm1_led_idle_start(uint32_t glow) { (void)glow; }
 static inline int  fm1_led_idle_on(void) { return 0; }
 static inline void fm1_led_anim_stop(void) {}
-static uint8_t fm1__dim_k = 16, fm1__dim2_k = 16, fm1__faint_k = 16;
 static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
     { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1, -1, -1, -1, -1, -1},
@@ -471,7 +463,6 @@ static void fm1__frame(void)
     smk__buttons();
     smk__encoders();
     smk__leds();
-    fm1_in.frames++;
 }
 
 /* ---------------------------------------------------------------- analog --- */
@@ -555,7 +546,6 @@ static void smk__analog(uint32_t slot, uint32_t raw)
     } else if (a < 4u) {
         uint32_t f = SMK_FADMUX[a], h0 = fm1_in.fad_hist[f][0], h1 = fm1_in.fad_hist[f][1], m, v;
         int32_t acc = fm1_in.fad_acc[f];
-        fm1_in.fad_raw[f] = (uint16_t)raw;
         fm1_in.fad_hist[f][1] = (uint16_t)h0;
         fm1_in.fad_hist[f][0] = (uint16_t)raw;
         m = raw > h0 ? (h0 > h1 ? h0 : raw > h1 ? h1 : raw) : (raw > h1 ? raw : h0 > h1 ? h1 : h0);   /* median */
@@ -599,10 +589,7 @@ static void fm1_input_tick(void)
     uint32_t col = smk_col, next;
     if (smk_adc_slot != 0xFF) {                              /* the conversion of the last tick */
         if (SMK_ADC_CON & 0x80u) {
-            fm1_in.adc_ok++;
             smk__analog(smk_adc_slot, SMK_ADC_RES & 0x3FFu);
-        } else {
-            fm1_in.adc_miss++;
         }
         SMK_ADC_CON = 0x40u;
         SMK_ADC_CON = 0;
