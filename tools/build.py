@@ -351,9 +351,7 @@ def main():
         (rel / app).write_bytes(img)
         (rel / f"felucca-{a.release}.fwsc").write_bytes(pkg)
         (rel / f"felucca-{a.release}-app.bin").write_bytes(img)
-        (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}
-"
-                                                for n, b in ((name, pkg), (app, bytes(img)))))
+        (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}" + chr(10) for n, b in ((name, pkg), (app, bytes(img)))))
         if (SRC / "LICENSES").is_dir():
             for f in sorted((SRC / "LICENSES").glob("*.txt")):
                 shutil.copy(f, rel / "LICENSES" / f.name)
@@ -362,13 +360,11 @@ def main():
             if doc_src.exists():
                 shutil.copy(doc_src, rel / doc)
             else:
-                (rel / doc).write_text("SPDX-License-Identifier: GPL-3.0-only
-")
+                (rel / doc).write_text("SPDX-License-Identifier: GPL-3.0-only" + chr(10))
         att = SRC / "assets" / "samples-cc0" / "ATTRIBUTION.txt"
         if att.exists():
             shutil.copy(att, rel / "ATTRIBUTION.txt")
         print(f"release  {rel}/")
-
     return 0
 
 
