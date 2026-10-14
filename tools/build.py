@@ -365,6 +365,7 @@ def main():
         if att.exists():
             shutil.copy(att, rel / "ATTRIBUTION.txt")
         print(f"release  {rel}/")
+
     return 0
 
 

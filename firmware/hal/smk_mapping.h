@@ -30,7 +30,7 @@
 #define ACT_OCTDN      0   /* B_OCTDN: Cursor < / Bar- / Bank A+B / Undo */
 #define ACT_OCTUP      1   /* B_OCTUP: Cursor > / Bar+ / Bank C+D / Redo */
 #define ACT_FX         2   /* B_FX: FX / Punch-in */
-#define ACT_SCALE      3   /* B_SEL: Select / Scale Page / Quantize */
+#define ACT_SCALE      3   /* B_SCL: Scale / Quantize page (FM-1 label SCL) */
 #define ACT_ENV        4   /* B_ENV: Envelope / Tap Tempo */
 #define ACT_LFO        5   /* B_LFO: LFO Parameters */
 #define ACT_EDIT       6   /* B_EDIT: Edit Sound / PARA */
@@ -116,10 +116,10 @@ static const uint8_t SMK_ENC_MAP[8] = {
 
 /* Physical faders F1..F4 (indices 0..3) mapping */
 static const uint8_t SMK_FAD_MAP[4] = {
-    FAD_ACT_DEFAULT  /* F1 */,
-    FAD_ACT_CH1      /* F2 */,
-    FAD_ACT_CH2      /* F3 */,
-    FAD_ACT_CH3      /* F4 */,
+    FAD_ACT_CH1      /* F1 */,
+    FAD_ACT_CH2      /* F2 */,
+    FAD_ACT_CH3      /* F3 */,
+    FAD_ACT_CH4      /* F4 */,
 };
 
 /* Function prototypes */

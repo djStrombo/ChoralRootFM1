@@ -212,7 +212,6 @@ static uint32_t lights_keys_mask(void)
 static void ui_leds(void)
 {
 #if BOARD_SMK37
-    /* On SMK-37: drive physical button LEDs cleanly by assigned role */
     for (uint32_t b = 0; b < SMK_NLED; b++) {
         uint8_t act = SMK_BTN_MAP[b];
         int on = 0;
@@ -232,8 +231,6 @@ static void ui_leds(void)
         else if (act == ACT_SAVE) on = (ui.layer == LY_SONG);
         fm1_led[b] = (uint8_t)on;
     }
-
-    /* Drive the 16 RGB pads in pure WHITE for active step sequencer steps, playing notes and guide landmarks */
     uint32_t keys = keys_lit();
     uint32_t guide = (keys_guide() | keys_notes_dim()) & ~keys;
     for (uint32_t p = 0; p < 16u; p++) {
@@ -242,16 +239,17 @@ static void ui_leds(void)
         int is_guide = (guide >> wk) & 1u;
         int is_down = (fm1_in.pnotes >> wk) & 1u;
         if (is_lit || is_down) {
-            padled_set(p, 180, 180, 180); /* Bright White */
+            padled_set(p, 180, 180, 180);
         } else if (is_guide) {
-            padled_set(p, 40, 40, 40);    /* Dim White landmark */
+            padled_set(p, 40, 40, 40);
         } else {
-            padled_set(p, 0, 0, 0);       /* Off */
+            padled_set(p, 0, 0, 0);
         }
     }
     padled_flush();
     return;
 #endif
+
     uint8_t nl[FM1_NCOL] = {0}, dl[FM1_NCOL] = {0}, bl[FM1_NCOL] = {0};
     uint32_t k, c, keys, guide, back;
     static uint8_t ready;

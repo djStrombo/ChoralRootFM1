@@ -43,6 +43,7 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 /* per key: what its press started, so its release ends the same (whatever the layer or track is now) */
+enum { KS_NONE, KS_NOTE, KS_DRUM, KS_ROLL, KS_ERASE, KS_FX, KS_UI, KS_MOD };   /* KS_MOD: a chord modifier (2.4) */
 #if BOARD_SMK37
 #define NUM_KB_KEYS 37u
 #else
@@ -202,7 +203,7 @@ static int kb_scaled(const track_t *t)
 static uint32_t kb_pitch(const track_t *t, uint32_t k, int32_t oct)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
-#if BOARD_SMK37
+    #if BOARD_SMK37
     int32_t n = 48 + (int32_t)k;
 #else
     int32_t n = 53 + (int32_t)k;
@@ -1684,25 +1685,19 @@ static void keyboard_block(void)
     static uint64_t kb_prev_keys;
     uint32_t k, r;
     audition_block();
-    if (er_mute && layer_now() != LY_ERASE)
-        er_mute = 0;                                  /* EDIT let go: its keys erase again (2.6) */
-    if (!(layer_buttons() & ly_bit[LY_ROLL]))         /* ARP up (and not locked): the rolls end (the keys stay silent) */
-        for (r = 0; r < NROLL; r++)
-            if (roll[r].on)
-                roll_end(r);
+    if (er_mute && layer_now() != LY_ERASE) er_mute = 0;
+    if (!(layer_buttons() & ly_bit[LY_ROLL])) for (r = 0; r < NROLL; r++) if (roll[r].on) roll_end(r);
     ch = cur ^ kb_prev_keys;
     if (ch) {
         for (k = 0; k < NUM_KB_KEYS; k++) {
-            if (!((ch >> k) & 1ULL))
-                continue;
-            if ((cur >> k) & 1ULL)
-                key_down(k);
-            else
-                key_up(k);
+            if (!((ch >> k) & 1ULL)) continue;
+            if ((cur >> k) & 1ULL) key_down(k);
+            else key_up(k);
             kb_prev_keys ^= (1ULL << k);
         }
     }
 #else
+
     uint32_t cur = fm1_in.notes, ch = cur ^ kb_prev, k, r;
     audition_block();
     if (er_mute && layer_now() != LY_ERASE)
@@ -1713,7 +1708,7 @@ static void keyboard_block(void)
                 roll_end(r);
     if (!ch)
         return;
-    for (k = 0; k < 27u; k++) {
+    for (k = 0; k < NUM_KB_KEYS; k++) {
         if (!((ch >> k) & 1u))
             continue;
         if ((cur >> k) & 1u)

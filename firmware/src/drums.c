@@ -82,11 +82,11 @@ static uint32_t lane_of_note(uint32_t note)
 /* the lane of key k (0 = F3 .. 26 = G5): white keys in order, a black key the white key left of it */
 static uint32_t lane_of_key(uint32_t k)
 {
-#if BOARD_SMK37
-    static const int8_t W[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};   /* from C */
+    #if BOARD_SMK37
+    static const int8_t W[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
 #else
-    static const int8_t W[12] = {0, -1, 1, -1, 2, -1, 3, 4, -1, 5, -1, 6};   /* from F */
-#endif
+    static const int8_t W[12] = {0, -1, 1, -1, 2, -1, 3, 4, -1, 5, -1, 6};
+#endif   /* from F */
     int32_t i = W[k % 12u];
     if (i < 0)
         i = W[(k - 1u) % 12u];
