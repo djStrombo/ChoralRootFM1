@@ -158,8 +158,8 @@ static void lcd_init(void)
 #if BOARD_SMK37
 #define PADLED_N 16u
 #define PADLED_LATCH 36u
-static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u];
-static uint32_t padled_rgb[PADLED_N];
+static uint8_t padled_buf[PADLED_LATCH + PADLED_N * 24u] __attribute__((section(".pool")));
+static uint32_t padled_rgb[PADLED_N] __attribute__((section(".pool")));
 static uint8_t padled_dirty = 1;
 static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
 
