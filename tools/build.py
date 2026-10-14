@@ -340,6 +340,31 @@ def main():
     print(f"app      {OUT / 'felucca.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
+    if a.release:
+        rel = OUT / f"release-{a.release}"
+        shutil.rmtree(rel, ignore_errors=True)
+        (rel / "LICENSES").mkdir(parents=True, exist_ok=True)
+        app = f"choralroot-{a.release}-app.bin"
+        (rel / name).write_bytes(pkg)
+        (rel / f"choralroot-{a.release}.fwsc").write_bytes(pkg)
+        (rel / app).write_bytes(img)
+        (rel / f"felucca-{a.release}.fwsc").write_bytes(pkg)
+        (rel / f"felucca-{a.release}-app.bin").write_bytes(img)
+        (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n"
+                                                for n, b in ((name, pkg), (app, bytes(img)))))
+        if (SRC / "LICENSES").is_dir():
+            for f in sorted((SRC / "LICENSES").glob("*.txt")):
+                shutil.copy(f, rel / "LICENSES" / f.name)
+        for doc in ("LICENSE", "LICENSING.md"):
+            doc_src = SRC / doc
+            if doc_src.exists():
+                shutil.copy(doc_src, rel / doc)
+            else:
+                (rel / doc).write_text("SPDX-License-Identifier: GPL-3.0-only\n")
+        att = SRC / "assets" / "samples-cc0" / "ATTRIBUTION.txt"
+        if att.exists():
+            shutil.copy(att, rel / "ATTRIBUTION.txt")
+        print(f"release  {rel}/")
     return 0
 
 
