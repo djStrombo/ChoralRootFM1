@@ -47,7 +47,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "SMK-37 Elite_016"                # package identity; release builds are FM-1_9XY
+PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY
 VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/ui.c)
 
 
@@ -340,6 +340,7 @@ def main():
     print(f"app      {OUT / 'felucca.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
+
     if a.release:
         rel = OUT / f"release-{a.release}"
         shutil.rmtree(rel, ignore_errors=True)
@@ -350,7 +351,8 @@ def main():
         (rel / app).write_bytes(img)
         (rel / f"felucca-{a.release}.fwsc").write_bytes(pkg)
         (rel / f"felucca-{a.release}-app.bin").write_bytes(img)
-        (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n"
+        (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}
+"
                                                 for n, b in ((name, pkg), (app, bytes(img)))))
         if (SRC / "LICENSES").is_dir():
             for f in sorted((SRC / "LICENSES").glob("*.txt")):
@@ -360,11 +362,13 @@ def main():
             if doc_src.exists():
                 shutil.copy(doc_src, rel / doc)
             else:
-                (rel / doc).write_text("SPDX-License-Identifier: GPL-3.0-only\n")
+                (rel / doc).write_text("SPDX-License-Identifier: GPL-3.0-only
+")
         att = SRC / "assets" / "samples-cc0" / "ATTRIBUTION.txt"
         if att.exists():
             shutil.copy(att, rel / "ATTRIBUTION.txt")
         print(f"release  {rel}/")
+
     return 0
 
 
